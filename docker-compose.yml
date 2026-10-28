@@ -1,0 +1,262 @@
+version: "3.9"
+
+# =============================================================================
+# acessorImobi — Docker Compose
+# Monólito modular com processos separados por responsabilidade
+# =============================================================================
+
+x-api-env: &api-env
+  DATABASE_URL: postgresql+asyncpg://acessor:${POSTGRES_PASSWORD}@postgres:5432/acessorimobi
+  REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+  MINIO_ENDPOINT: minio:9000
+  MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
+  MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
+  MINIO_BUCKET_AUDIOS: audios
+  OLLAMA_BASE_URL: http://ollama:11434
+  WHISPER_BASE_URL: http://whisper:9000
+  EVOLUTION_BASE_URL: http://evolution:8080
+  EVOLUTION_API_KEY: ${EVOLUTION_API_KEY}
+  SECRET_KEY: ${SECRET_KEY}
+  ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+  ENVIRONMENT: ${ENVIRONMENT:-production}
+  LOG_LEVEL: ${LOG_LEVEL:-info}
+  BASE_DOMAIN: ${BASE_DOMAIN}
+
+services:
+  traefik:
+    image: traefik:v3.1
+    container_name: acessorimobi_traefik
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./infra/traefik/traefik.yml:/etc/traefik/traefik.yml:ro
+      - ./infra/traefik/dynamic:/etc/traefik/dynamic:ro
+      - traefik_certs:/certs
+    networks:
+      - web
+      - internal
+
+  web:
+    build:
+      context: .
+      dockerfile: infra/docker/Dockerfile.web
+    container_name: acessorimobi_web
+    restart: unless-stopped
+    environment:
+      <<: *api-env
+      API_INTERNAL_URL: http://api:8000
+    depends_on:
+      - api
+    networks:
+      - internal
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.admin-panel.rule=Host(`admin.${BASE_DOMAIN}`)"
+      - "traefik.http.routers.admin-panel.tls=true"
+      - "traefik.http.routers.admin-panel.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.admin-panel.service=web"
+      - "traefik.http.routers.corretor-portal.rule=Host(`corretor.${BASE_DOMAIN}`)"
+      - "traefik.http.routers.corretor-portal.tls=true"
+      - "traefik.http.routers.corretor-portal.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.corretor-portal.service=web"
+      - "traefik.http.routers.tenant-portal.rule=HostRegexp(`{tenant:[a-z0-9-]+}.${BASE_DOMAIN}`)"
+      - "traefik.http.routers.tenant-portal.tls=true"
+      - "traefik.http.routers.tenant-portal.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.tenant-portal.service=web"
+      - "traefik.http.services.web.loadbalancer.server.port=3000"
+
+  api:
+    build:
+      context: .
+      dockerfile: infra/docker/Dockerfile.api
+    container_name: acessorimobi_api
+    restart: unless-stopped
+    environment:
+      <<: *api-env
+      WORKER_COUNT: 4
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - internal
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.api.rule=Host(`api.${BASE_DOMAIN}`)"
+      - "traefik.http.routers.api.tls=true"
+      - "traefik.http.routers.api.tls.certresolver=letsencrypt"
+      - "traefik.http.services.api.loadbalancer.server.port=8000"
+
+  worker:
+    build:
+      context: .
+      dockerfile: infra/docker/Dockerfile.api
+    container_name: acessorimobi_worker
+    restart: unless-stopped
+    command: python -m app.worker.main
+    environment:
+      <<: *api-env
+      WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-8}
+      WORKER_MAX_PER_TENANT: ${WORKER_MAX_PER_TENANT:-3}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - internal
+
+  scheduler:
+    build:
+      context: .
+      dockerfile: infra/docker/Dockerfile.api
+    container_name: acessorimobi_scheduler
+    restart: unless-stopped
+    command: python -m app.scheduler.main
+    environment:
+      <<: *api-env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - internal
+
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: acessorimobi_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: acessor
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: acessorimobi
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./infra/postgres/init.sql:/docker-entrypoint-initdb.d/00_init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U acessor -d acessorimobi"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - internal
+
+  redis:
+    image: redis:7-alpine
+    container_name: acessorimobi_redis
+    restart: unless-stopped
+    command: redis-server --requirepass ${REDIS_PASSWORD} --maxmemory 512mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - internal
+
+  evolution:
+    image: atendai/evolution-api:v2.2.3
+    container_name: acessorimobi_evolution
+    restart: unless-stopped
+    environment:
+      SERVER_URL: https://evo.${BASE_DOMAIN}
+      AUTHENTICATION_API_KEY: ${EVOLUTION_API_KEY}
+      DATABASE_ENABLED: "true"
+      DATABASE_PROVIDER: postgresql
+      DATABASE_CONNECTION_URI: postgresql://acessor:${POSTGRES_PASSWORD}@postgres:5432/evolution
+      DATABASE_CONNECTION_CLIENT_NAME: evolution
+      CACHE_REDIS_ENABLED: "true"
+      CACHE_REDIS_URI: redis://:${REDIS_PASSWORD}@redis:6379/1
+      CACHE_REDIS_PREFIX_KEY: evolution
+      RABBITMQ_ENABLED: "false"
+      WEBHOOK_GLOBAL_ENABLED: "false"
+      CONFIG_SESSION_PHONE_CLIENT: AcessorImobi
+      LOG_LEVEL: ERROR
+    volumes:
+      - evolution_instances:/evolution/instances
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - internal
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.evolution.rule=Host(`evo.${BASE_DOMAIN}`)"
+      - "traefik.http.routers.evolution.tls=true"
+      - "traefik.http.routers.evolution.tls.certresolver=letsencrypt"
+      - "traefik.http.services.evolution.loadbalancer.server.port=8080"
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: acessorimobi_ollama
+    restart: unless-stopped
+    environment:
+      OLLAMA_NUM_PARALLEL: ${OLLAMA_NUM_PARALLEL:-4}
+      OLLAMA_MAX_LOADED_MODELS: "2"
+      OLLAMA_KEEP_ALIVE: 10m
+    volumes:
+      - ollama_models:/root/.ollama
+    networks:
+      - internal
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  whisper:
+    image: onerahmet/openai-whisper-asr-webservice:latest
+    container_name: acessorimobi_whisper
+    restart: unless-stopped
+    environment:
+      ASR_MODEL: ${WHISPER_MODEL:-medium}
+      ASR_ENGINE: openai_whisper
+    volumes:
+      - whisper_models:/root/.cache/whisper
+    networks:
+      - internal
+
+  minio:
+    image: minio/minio:latest
+    container_name: acessorimobi_minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY}
+    volumes:
+      - minio_data:/data
+    networks:
+      - internal
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.minio.rule=Host(`storage.${BASE_DOMAIN}`)"
+      - "traefik.http.routers.minio.tls=true"
+      - "traefik.http.routers.minio.tls.certresolver=letsencrypt"
+      - "traefik.http.services.minio.loadbalancer.server.port=9000"
+
+networks:
+  web:
+    external: true
+  internal:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:
+  minio_data:
+  ollama_models:
+  whisper_models:
+  evolution_instances:
+  traefik_certs:
