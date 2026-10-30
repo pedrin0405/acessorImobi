@@ -2,6 +2,7 @@
 
 import React, { useState } from "react";
 import { Lock, Mail, Phone, Building, ArrowRight, KeyRound } from "lucide-react";
+import LogoAcessor from "@/components/shell/LogoAcessor";
 import { API_BASE, setToken } from "@/lib/api";
 
 export type LoginMode = "developer" | "admin" | "corretor";
@@ -89,9 +90,13 @@ export default function LoginForm({ mode, onSuccess, compact }: Props) {
   return (
     <div className={compact ? "w-full" : "min-h-screen flex items-center justify-center p-4 bg-slate-900"}>
       <div className={`bg-slate-800 border border-slate-700/60 rounded-3xl p-8 w-full ${compact ? "max-w-md" : "max-w-md shadow-2xl"} space-y-6 text-slate-100`}>
-        <div className="text-center space-y-2">
-          <h1 className="text-xl font-bold tracking-tight text-white">{titles[mode]}</h1>
-          <p className="text-sm text-slate-400">Informe suas credenciais para continuar</p>
+        <div className="flex flex-col items-center gap-3 text-center">
+          <LogoAcessor className="w-16 h-16" alt="acessorImobi" />
+          <div className="space-y-1">
+            <p className="text-[10.5px] font-semibold uppercase tracking-[0.2em] text-slate-500">acessorImobi</p>
+            <h1 className="text-xl font-bold tracking-tight text-white">{titles[mode]}</h1>
+            <p className="text-sm text-slate-400">Informe suas credenciais para continuar</p>
+          </div>
         </div>
 
         <form onSubmit={submit} className="space-y-4">

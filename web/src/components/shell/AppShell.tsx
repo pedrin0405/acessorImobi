@@ -2,6 +2,7 @@
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { LogOut, Menu, Moon, PanelLeft, Search, Sun } from "lucide-react";
+import LogoAcessor from "@/components/shell/LogoAcessor";
 
 export interface NavItem {
   id: string;
@@ -27,16 +28,6 @@ interface Props {
   /** Telas de trabalho (ex.: Conversas) usam toda a área, sem a moldura de leitura. */
   larguraTotal?: boolean;
   children: React.ReactNode;
-}
-
-// Símbolo do Acessor: casa estilizada com um balão de conversa.
-export function MarcaAcessor({ className = "w-5 h-5" }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" className={className} aria-hidden="true">
-      <path d="M4 11.2 12 4.5l8 6.7V19a1 1 0 0 1-1 1h-5v-5h-4v5H5a1 1 0 0 1-1-1v-7.8Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
-      <circle cx="17.5" cy="6.5" r="2.5" fill="currentColor" />
-    </svg>
-  );
 }
 
 const lerPreferencia = (chave: string, padrao: string) => {
@@ -143,9 +134,7 @@ export default function AppShell({ marca, subtitulo, grupos, rodape = [], ativo,
   const Lateral = ({ compacto }: { compacto: boolean }) => (
     <div className="flex flex-col h-full">
       <div className={`flex items-center gap-3 h-16 ${compacto ? "justify-center" : "px-4"}`}>
-        <span className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ background: "var(--accent-soft)", color: "var(--accent)" }}>
-          <MarcaAcessor />
-        </span>
+        <LogoAcessor className="w-9 h-9" />
         {!compacto && (
           <div className="min-w-0">
             <p className="text-sm font-semibold truncate" style={{ color: "var(--text)" }}>{marca}</p>

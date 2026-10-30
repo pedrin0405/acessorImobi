@@ -3,7 +3,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { ArrowLeft, FileText, History, MessageCircle, RotateCw } from "lucide-react";
 import { fetchApi } from "@/lib/api";
-import { MarcaAcessor } from "@/components/shell/AppShell";
+import LogoAcessor from "@/components/shell/LogoAcessor";
 import Compositor, { CompositorRef, mimeDoArquivo } from "./Compositor";
 import Gaveta, { ConversaIA, rotuloDia } from "./Gaveta";
 import RespostaIA from "./RespostaIA";
@@ -277,8 +277,8 @@ export default function AssistenteInicio({
                 </div>
               ) : (
                 <div key={m.id} className="assist-rise flex gap-3">
-                  <span className="mt-0.5 w-7 h-7 shrink-0 rounded-lg flex items-center justify-center" style={{ background: "var(--accent-soft)", color: "var(--accent)" }}>
-                    <MarcaAcessor className="w-4 h-4" />
+                  <span className="mt-0.5 w-7 h-7 shrink-0 overflow-hidden rounded-lg flex items-center justify-center">
+                    <LogoAcessor className="w-7 h-7" />
                   </span>
                   <div className="flex-1 min-w-0">
                     <RespostaIA

@@ -1,11 +1,13 @@
 import Link from "next/link";
 import { Building2, Shield, UserCheck, MessageSquare } from "lucide-react";
+import LogoAcessor from "@/components/shell/LogoAcessor";
 
 export default function Home() {
   return (
     <main className="flex min-h-screen flex-col items-center justify-center p-6 bg-slate-900 text-white">
       <div className="max-w-4xl w-full text-center space-y-8">
         <div className="space-y-4">
+          <LogoAcessor className="w-24 h-24 mx-auto" alt="acessorImobi" />
           <div className="inline-flex items-center gap-2 px-3 py-1 bg-sky-500/10 border border-sky-500/20 rounded-full text-sky-400 text-sm font-medium">
             <MessageSquare className="w-4 h-4" /> acessorImobi v2
           </div>
