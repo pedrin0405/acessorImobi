@@ -270,6 +270,20 @@ class ConfiguracoesService:
         await self._gravar("roleta", novo)
         return await self.roleta()
 
+    async def fila_da_roleta(self) -> List[str]:
+        """Corretores do rodízio, já começando por quem vem depois do último atendido."""
+        cfg = {**padroes.ROLETA_PADRAO, **((await self.dados()).get("roleta") or {})}
+        ordem = sorted(e["id"] for e in await self._elegiveis(cfg))
+        if not ordem:
+            return []
+        ultimo = cfg.get("ultimo")
+        inicio = (ordem.index(ultimo) + 1) % len(ordem) if ultimo in ordem else 0
+        return ordem[inicio:] + ordem[:inicio]
+
+    async def gravar_ultimo_da_roleta(self, corretor_id: str) -> None:
+        cfg = {**padroes.ROLETA_PADRAO, **((await self.dados()).get("roleta") or {})}
+        await self._gravar("roleta", {**cfg, "ultimo": corretor_id})
+
     async def proximo_da_roleta(self) -> Optional[str]:
         """Escolhe e GRAVA o próximo corretor do rodízio (None com a roleta desligada)."""
         await self._s.execute(text("SELECT 1 FROM tenants WHERE id = :tid FOR UPDATE"), {"tid": self._tid})

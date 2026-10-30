@@ -755,7 +755,7 @@ export default function TenantAdminPage() {
 
         {tab === "negociacoes" && <Negociacoes onAuthError={tratarAuthError} />}
         {tab === "agenda" && <Agenda onAuthError={tratarAuthError} />}
-        {tab === "leads" && <Leads onAuthError={tratarAuthError} />}
+        {tab === "leads" && <Leads onAuthError={tratarAuthError} onIr={(id) => { if (id === "configuracoes") setSecaoCfg("integracoes"); setTab(id as Aba); }} />}
 
         {/* Tab Auditoria */}
         {tab === "auditoria" && (

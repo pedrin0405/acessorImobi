@@ -6,6 +6,7 @@ imóveis (imoveis_cache) e do cadastro oficial de clientes; o lead guarda o
 código do cliente no Imoview quando houver.
 """
 import json
+import re
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any, Dict, List, Optional
@@ -43,6 +44,12 @@ CAMPOS_PERFIL = (
     "interesse", "tipos", "bairros", "quartos_min", "vagas_min",
     "valor_max", "area_min", "prazo",
 )
+
+
+def _telefone_busca(telefone: Optional[str]) -> Optional[str]:
+    """Últimos 11 dígitos, para achar o mesmo número escrito de formas diferentes."""
+    digitos = re.sub(r"\D", "", telefone or "")
+    return digitos[-11:] if len(digitos) >= 8 else None
 
 
 class CrmError(ValueError):
@@ -198,17 +205,17 @@ class CrmService:
         row = await self._session.execute(
             text("""
                 INSERT INTO crm_leads (
-                    tenant_id, corretor_id, nome, telefone, email, origem,
+                    tenant_id, corretor_id, nome, telefone, telefone_busca, email, origem,
                     temperatura, perfil, observacoes, ultimo_contato
                 ) VALUES (
-                    :tid, :cid, :nome, :tel, :email, :origem,
+                    :tid, :cid, :nome, :tel, :busca, :email, :origem,
                     :temp, CAST(:perfil AS jsonb), :obs, NOW()
                 )
                 RETURNING *
             """),
             {
                 "tid": str(tenant_id), "cid": str(corretor_id), "nome": nome[:255],
-                "tel": (telefone or None), "email": (email or None), "origem": origem[:40],
+                "tel": (telefone or None), "busca": _telefone_busca(telefone), "email": (email or None), "origem": origem[:40],
                 "temp": temperatura, "perfil": json.dumps(normalizar_perfil(perfil)),
                 "obs": observacoes,
             },
@@ -263,6 +270,7 @@ class CrmService:
         corretor_id: Optional[UUID] = None,
         termo: Optional[str] = None,
         limit: int = 50,
+        incluir_sem_responsavel: bool = False,
     ) -> List[Dict[str, Any]]:
         where = ["l.tenant_id = :tid", "l.status <> 'arquivado'"]
         params: Dict[str, Any] = {"tid": str(tenant_id), "limit": max(1, min(limit, 500))}
@@ -278,7 +286,7 @@ class CrmService:
                        (SELECT COUNT(*) FROM crm_negocios n
                         WHERE n.lead_id = l.id AND n.status = 'aberto') AS negocios_abertos
                 FROM crm_leads l
-                JOIN corretores c ON c.id = l.corretor_id
+                {'LEFT ' if incluir_sem_responsavel else ''}JOIN corretores c ON c.id = l.corretor_id
                 WHERE {' AND '.join(where)}
                 ORDER BY l.updated_at DESC
                 LIMIT :limit
@@ -286,6 +294,114 @@ class CrmService:
             params,
         )
         return [_linha(r) for r in rows.fetchall()]
+
+    # --- Clientes do portal (paginado; inclui leads sem responsável) ----------------
+
+    @staticmethod
+    def _filtro_clientes(
+        tenant_id: UUID, termo: Optional[str], responsavel: Optional[str], origem: Optional[str], temperatura: Optional[str],
+    ) -> "tuple[str, Dict[str, Any]]":
+        where = ["l.tenant_id = :tid", "l.status <> 'arquivado'"]
+        params: Dict[str, Any] = {"tid": str(tenant_id)}
+        termo = (termo or "").strip()
+        if termo:
+            digitos = re.sub(r"\D", "", termo)
+            condicoes = ["l.nome ILIKE :termo", "l.email ILIKE :termo"]
+            params["termo"] = f"%{termo}%"
+            if len(digitos) >= 4:
+                condicoes.append("l.telefone_busca LIKE :fone")
+                params["fone"] = f"%{digitos[-11:]}%"
+            where.append("(" + " OR ".join(condicoes) + ")")
+        if responsavel == "sem":
+            where.append("l.corretor_id IS NULL")
+        elif responsavel:
+            where.append("l.corretor_id = :resp")
+            params["resp"] = str(UUID(responsavel))
+        if origem:
+            where.append("l.origem = :origem")
+            params["origem"] = origem
+        if temperatura in ("quente", "morno", "frio"):
+            where.append("l.temperatura = :temp")
+            params["temp"] = temperatura
+        return " AND ".join(where), params
+
+    async def listar_clientes(
+        self,
+        tenant_id: UUID,
+        termo: Optional[str] = None,
+        responsavel: Optional[str] = None,
+        origem: Optional[str] = None,
+        temperatura: Optional[str] = None,
+        ordem: str = "recentes",
+        pagina: int = 1,
+        por_pagina: int = 25,
+    ) -> Dict[str, Any]:
+        """Carteira inteira da imobiliária, paginada. `responsavel`: 'sem' ou o id de um corretor."""
+        onde, params = self._filtro_clientes(tenant_id, termo, responsavel, origem, temperatura)
+        por_pagina = max(5, min(por_pagina, 100))
+        pagina = max(1, pagina)
+        ordenacao = {
+            "recentes": "l.created_at DESC, l.id", "atualizados": "l.updated_at DESC, l.id",
+            "nome": "lower(l.nome), l.id",
+        }.get(ordem, "l.created_at DESC, l.id")
+        total = (await self._session.execute(text(f"SELECT COUNT(*) FROM crm_leads l WHERE {onde}"), params)).scalar() or 0
+        rows = await self._session.execute(
+            text(f"""
+                SELECT l.*, c.nome AS corretor_nome,
+                       (SELECT COUNT(*) FROM crm_negocios n WHERE n.lead_id = l.id AND n.status = 'aberto') AS negocios_abertos
+                FROM crm_leads l LEFT JOIN corretores c ON c.id = l.corretor_id
+                WHERE {onde} ORDER BY {ordenacao} LIMIT :limite OFFSET :desloca
+            """),
+            {**params, "limite": por_pagina, "desloca": (pagina - 1) * por_pagina},
+        )
+        resumo = (await self._session.execute(
+            text("""SELECT COUNT(*) AS total, COUNT(*) FILTER (WHERE corretor_id IS NULL) AS sem_responsavel,
+                           COUNT(*) FILTER (WHERE origem = 'imoview') AS imoview
+                    FROM crm_leads WHERE tenant_id = :tid AND status <> 'arquivado'"""),
+            {"tid": str(tenant_id)},
+        )).first()
+        return {
+            "itens": [_linha(r) for r in rows.fetchall()],
+            "total": total, "pagina": pagina, "por_pagina": por_pagina, "paginas": max(1, -(-total // por_pagina)),
+            "resumo": {"total": resumo.total, "sem_responsavel": resumo.sem_responsavel, "imoview": resumo.imoview},
+        }
+
+    async def atribuir_clientes(
+        self,
+        tenant_id: UUID,
+        corretores: List[UUID],
+        ids: Optional[List[UUID]] = None,
+        filtro: Optional[Dict[str, Any]] = None,
+        limite: int = 5000,
+    ) -> int:
+        """
+        Atribui clientes a um corretor (lista de um) ou os distribui em rodízio entre vários.
+        Seleciona por `ids` ou pelo mesmo `filtro` da listagem (até `limite`). Devolve quantos mudaram.
+        """
+        if not corretores:
+            raise CrmError("Escolha o corretor responsável.")
+        if ids:
+            alvo = [str(i) for i in ids[:limite]]
+        else:
+            f = filtro or {}
+            onde, params = self._filtro_clientes(tenant_id, f.get("termo"), f.get("responsavel"), f.get("origem"), f.get("temperatura"))
+            linhas = await self._session.execute(
+                text(f"SELECT l.id FROM crm_leads l WHERE {onde} ORDER BY l.created_at DESC, l.id LIMIT :limite"),
+                {**params, "limite": limite},
+            )
+            alvo = [str(r.id) for r in linhas.fetchall()]
+        if not alvo:
+            return 0
+        donos = [str(corretores[i % len(corretores)]) for i in range(len(alvo))]
+        r = await self._session.execute(
+            text("""
+                UPDATE crm_leads l SET corretor_id = v.dono, updated_at = NOW()
+                FROM (SELECT unnest(CAST(:ids AS uuid[])) AS id, unnest(CAST(:donos AS uuid[])) AS dono) v
+                WHERE l.id = v.id AND l.tenant_id = :tid
+            """),
+            {"ids": alvo, "donos": donos, "tid": str(tenant_id)},
+        )
+        return r.rowcount or 0
 
     async def encontrar_lead(
         self, tenant_id: UUID, corretor_id: UUID, nome: str

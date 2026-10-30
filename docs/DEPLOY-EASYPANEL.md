@@ -76,7 +76,8 @@ Sempre nesta ordem, para o código novo não pedir coluna que ainda não existe:
 
 O que cada migração recente cria: `007` mídia das mensagens, `008` conversas do assistente,
 `009` notas internas, `010` memória das conversas (pgvector), `011` integração e status do Imoview,
-`012` configurações da imobiliária (dados, listas, localidades, tipos de atividade, roleta, lembretes).
+`012` configurações da imobiliária (dados, listas, localidades, tipos de atividade, roleta, lembretes),
+`013` leads do Imoview (cliente sem responsável, telefone de busca, status da importação).
 
 ## O que depende do Gemini
 
@@ -91,3 +92,16 @@ as mensagens recentes). Variáveis opcionais da memória: `MEMORIA_ATIVA`, `MEMO
 A URL base e a chave do Imoview **não** são mais pedidas ao criar a imobiliária no painel do
 desenvolvedor: a própria imobiliária configura em **Configurações → Integrações** e pode testar a conexão
 e sincronizar na hora. A sincronização automática continua a cada `IMOVIEW_SYNC_INTERVAL_MINUTES`.
+
+### Leads do Imoview
+
+Em **Configurações → Integrações → Clientes**, a imobiliária importa os leads do Imoview para a aba
+**Clientes**. A primeira importação lê todos os leads (a API entrega 20 por página, então ~28 mil leads
+levam alguns minutos) e pode ser acompanhada na tela ou deixada em segundo plano; se parar, retoma de
+onde parou. Depois, o `scheduler` busca os novos a cada 30 minutos e confere tudo aos domingos 04:30
+(dá para desligar na própria tela).
+
+- Os leads entram **sem responsável**; na aba Clientes dá para atribuir um a um, em lote ou pela roleta.
+- Se o telefone já existe em um cliente (por exemplo, anotado pelo corretor no WhatsApp), o lead é
+  vinculado a ele, sem duplicar, e o responsável é mantido.
+- CPF e CNPJ **não** são importados (LGPD).

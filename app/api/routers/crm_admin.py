@@ -64,6 +64,20 @@ class LeadCreate(BaseModel):
     temperatura: Optional[str] = Field(default=None, pattern="^(quente|morno|frio)$")
 
 
+class FiltroClientes(BaseModel):
+    termo: Optional[str] = Field(default=None, max_length=100)
+    responsavel: Optional[str] = Field(default=None, max_length=36)  # 'sem' ou o id de um corretor
+    origem: Optional[str] = Field(default=None, max_length=40)
+    temperatura: Optional[str] = Field(default=None, pattern="^(quente|morno|frio)$")
+
+
+class AtribuirClientes(BaseModel):
+    corretor_id: Optional[UUID] = None
+    roleta: bool = False  # distribui em rodízio entre os corretores da roleta
+    ids: Optional[List[UUID]] = Field(default=None, max_length=1000)
+    filtro: Optional[FiltroClientes] = None  # alternativa a `ids`: todos os que casam com o filtro (até 5.000)
+
+
 class AtividadeUpdate(BaseModel):
     status: Optional[str] = Field(default=None, pattern="^(aberta|concluida|cancelada)$")
 
@@ -237,6 +251,62 @@ async def criar_lead(body: LeadCreate, admin=Depends(require_admin)):
             entidade_id=str(lead["id"]), origem="portal", payload_depois={"nome": body.nome, "roleta": via_roleta},
         )
         return {**lead, "via_roleta": via_roleta}
+
+
+@router.get("/clientes", summary="Carteira inteira, paginada, com leads do Imoview e sem responsável")
+async def listar_clientes(
+    termo: Optional[str] = Query(None, max_length=100),
+    responsavel: Optional[str] = Query(None, max_length=36),
+    origem: Optional[str] = Query(None, max_length=40),
+    temperatura: Optional[str] = Query(None, pattern="^(quente|morno|frio)$"),
+    ordem: str = Query("recentes", pattern="^(recentes|atualizados|nome)$"),
+    pagina: int = Query(1, ge=1),
+    por_pagina: int = Query(25, ge=5, le=100),
+    admin=Depends(require_admin),
+):
+    if responsavel and responsavel != "sem":
+        try:
+            UUID(responsavel)
+        except ValueError:
+            raise HTTPException(status_code=422, detail="Responsável inválido.")
+    async with get_session(admin.tenant_id) as session:
+        return await CrmService(session).listar_clientes(
+            admin.tenant_id, termo, responsavel, origem, temperatura, ordem, pagina, por_pagina
+        )
+
+
+@router.post("/clientes/atribuir", summary="Atribui clientes a um corretor ou distribui pela roleta")
+async def atribuir_clientes(body: AtribuirClientes, admin=Depends(require_admin)):
+    from app.domain.configuracoes.service import ConfiguracoesService
+
+    if bool(body.ids) == bool(body.filtro):
+        raise HTTPException(status_code=422, detail="Escolha os clientes por lista ou por filtro (não os dois).")
+    async with get_session(admin.tenant_id) as session:
+        crm = CrmService(session)
+        if body.roleta:
+            config = ConfiguracoesService(session, admin.tenant_id)
+            fila = await config.fila_da_roleta()
+            if not fila:
+                raise HTTPException(status_code=422, detail="Não há corretores ativos para distribuir.")
+            corretores = [UUID(c) for c in fila]
+        elif body.corretor_id:
+            await _corretor_ativo(session, admin.tenant_id, body.corretor_id)
+            corretores = [body.corretor_id]
+        else:
+            raise HTTPException(status_code=422, detail="Escolha o corretor ou use a roleta.")
+        try:
+            alteradas = await crm.atribuir_clientes(
+                admin.tenant_id, corretores, ids=body.ids, filtro=body.filtro.model_dump() if body.filtro else None
+            )
+        except CrmError as e:
+            raise _erro(e)
+        if body.roleta and alteradas:
+            await ConfiguracoesService(session, admin.tenant_id).gravar_ultimo_da_roleta(str(corretores[(alteradas - 1) % len(corretores)]))
+        await AuditoriaService(session).registrar(
+            tenant_id=admin.tenant_id, corretor_id=None, acao="crm_clientes_atribuidos", entidade="lead", origem="portal",
+            payload_depois={"quantidade": alteradas, "roleta": body.roleta, "corretores": len(corretores)},
+        )
+        return {"atribuidos": alteradas}
 
 
 @router.get("/leads/{lead_id}/match", summary="Imóveis que combinam com o perfil do lead")

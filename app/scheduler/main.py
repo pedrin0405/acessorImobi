@@ -38,7 +38,10 @@ async def sync_imoveis_por_tenant(tenant_id: UUID, imoview_creds: bytes = b""):
 
 async def job_sync_pedidos():
     """Atende, em poucos segundos, as sincronizações pedidas pelo portal ("Sincronizar agora")."""
+    from app.domain.crm.importacao_imoview import processar_pedidos as processar_pedidos_leads
+
     await processar_pedidos()
+    await processar_pedidos_leads()
 
 
 async def job_sync_imoveis():
@@ -340,6 +343,11 @@ def main():
         next_run_time=datetime.now(),
     )
     scheduler.add_job(job_sync_pedidos, "interval", seconds=10, max_instances=1, coalesce=True)
+    from app.domain.crm.importacao_imoview import job_sync_leads, job_sync_leads_completo
+
+    # Leads do Imoview: leitura incremental a cada 30 min (a primeira vez importa tudo) e completa aos domingos.
+    scheduler.add_job(job_sync_leads, "interval", minutes=30, max_instances=1, coalesce=True, next_run_time=datetime.now() + timedelta(seconds=45))
+    scheduler.add_job(job_sync_leads_completo, "cron", day_of_week="sun", hour=4, minute=30, max_instances=1, coalesce=True)
     scheduler.add_job(job_retry_pendencias, "interval", minutes=5)
     scheduler.add_job(job_health_check_whatsapp, "interval", minutes=2)
     scheduler.add_job(job_expurgo_lgpd, "cron", hour=3, minute=0)

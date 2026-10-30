@@ -346,7 +346,7 @@ class AssistenteService:
 
     async def _executar(self, nome: str, args: Dict[str, Any]) -> str:
         if nome == "buscar_leads":
-            leads = await self._crm.listar_leads(self._tenant_id, termo=args.get("termo"), limit=10)
+            leads = await self._crm.listar_leads(self._tenant_id, termo=args.get("termo"), limit=10, incluir_sem_responsavel=True)
             if not leads:
                 return f"Nenhum cliente encontrado para '{args.get('termo', '')}'."
             return "\n".join(
@@ -371,7 +371,7 @@ class AssistenteService:
             )
             return "\n".join(_linha_imovel(i) for i in imoveis) or "Nenhum imóvel encontrado com esses critérios."
         if nome == "match_lead":
-            leads = await self._crm.listar_leads(self._tenant_id, termo=args.get("cliente"), limit=1)
+            leads = await self._crm.listar_leads(self._tenant_id, termo=args.get("cliente"), limit=1, incluir_sem_responsavel=True)
             if not leads:
                 return f"Não achei o cliente '{args.get('cliente', '')}'."
             lead = leads[0]

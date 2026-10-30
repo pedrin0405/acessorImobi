@@ -24,6 +24,7 @@ from app.api.routers import (
     dev_panel,
     imoveis_admin,
     imoview_admin,
+    imoview_leads_admin,
     tenant_admin,
     corretor_portal,
     whatsapp_webhook,
@@ -97,6 +98,7 @@ app.include_router(whatsapp_webhook.router, prefix="/webhook", tags=["WhatsApp"]
 app.include_router(dev_panel.router, prefix="/dev", tags=["Painel Dev"])
 app.include_router(tenant_admin.router, prefix="/admin", tags=["Admin Imobiliária"])
 app.include_router(crm_admin.router, prefix="/admin/crm", tags=["CRM"])
+app.include_router(imoview_leads_admin.router, prefix="/admin/integracoes/imoview/leads", tags=["Imoview"])
 app.include_router(imoview_admin.router, prefix="/admin/integracoes/imoview", tags=["Integração Imoview"])
 app.include_router(imoveis_admin.router, prefix="/admin/imoveis", tags=["Imóveis"])
 app.include_router(conversas_admin.router, prefix="/admin", tags=["Conversas"])

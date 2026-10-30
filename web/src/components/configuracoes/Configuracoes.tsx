@@ -103,7 +103,7 @@ export default function Configuracoes({
       case "tipos": return <TiposSecao onAuthError={onAuthError} />;
       case "whatsapp": return renderWhatsApp();
       case "lembretes": return <LembretesSecao onAuthError={onAuthError} />;
-      case "integracoes": return <IntegracoesSecao onAuthError={onAuthError} />;
+      case "integracoes": return <IntegracoesSecao onAuthError={onAuthError} onVerClientes={() => onIr("leads")} />;
       default:
         return (
           <div className="py-16 text-center">
