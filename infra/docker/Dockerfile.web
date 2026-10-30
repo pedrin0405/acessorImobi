@@ -12,6 +12,10 @@ RUN npm run build
 FROM node:22-alpine AS runner
 WORKDIR /app
 ENV NODE_ENV=production
+# Sem isso o Next standalone escuta só no IP do container (HOSTNAME) e o proxy
+# do EasyPanel, que chega por outra rede, não consegue conectar.
+ENV HOSTNAME=0.0.0.0
+ENV PORT=3000
 
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
