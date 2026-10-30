@@ -134,12 +134,12 @@ export default function AppShell({ marca, subtitulo, grupos, rodape = [], ativo,
 
   const Lateral = ({ compacto }: { compacto: boolean }) => (
     <div className="flex flex-col h-full">
-      <div className={`flex flex-col justify-center ${compacto ? "items-center h-16" : "h-[88px] px-4"}`}>
+      <div className={`flex flex-col justify-center ${compacto ? "items-center h-16" : "h-20 px-4"}`}>
         {compacto ? (
           <LogoAcessor className="w-9 h-9" alt={marca} />
         ) : (
           <>
-            <LogoAcessorHorizontal tema={tema} alt={`${marca} Imobi`} className="w-[164px] h-auto" />
+            <LogoAcessorHorizontal tema={tema} alt={`${marca} Imobi`} className="w-36 h-auto" />
             <p className="mt-0.5 text-[11px] truncate" style={{ color: "var(--text-4)" }}>{subtitulo}</p>
           </>
         )}

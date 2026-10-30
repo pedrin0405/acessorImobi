@@ -12,7 +12,7 @@ interface Props {
  */
 export default function LogoAcessorHorizontal({
   tema,
-  className = "w-[164px] h-auto",
+  className = "w-36 h-auto",
   alt = "Acessor Imobi",
 }: Props) {
   const src =
