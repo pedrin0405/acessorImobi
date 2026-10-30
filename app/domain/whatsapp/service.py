@@ -42,6 +42,23 @@ STATE_MAP = {
 }
 
 
+# Sem imagem de QR (modo "conectar com número"), o código de pareamento fica em
+# sessoes.qr_code com este prefixo, para o status() reconhecer um pareamento em curso.
+PREFIXO_PAREAMENTO = "pairing:"
+
+
+def normalizar_numero_pareamento(numero: str) -> str:
+    """Só dígitos, com DDI 55 quando vier DDD + número (10 ou 11 dígitos)."""
+    digitos = "".join(ch for ch in (numero or "") if ch.isdigit())
+    if len(digitos) in (10, 11):
+        digitos = "55" + digitos
+    if not 12 <= len(digitos) <= 15:
+        raise WhatsAppIntegrationError(
+            "Número inválido. Informe o WhatsApp do agente com DDD, por exemplo 63 99999-9999."
+        )
+    return digitos
+
+
 class SessaoWhatsApp:
     def __init__(self, row):
         self.id = row.id
@@ -165,20 +182,30 @@ class WhatsAppService:
             numero=numero if numero != sessao.numero else None,
         )
 
+        pendente = novo_status == "qr_pending" and not limpar_qr
+        guardado = sessao.qr_code if pendente else None
+        so_codigo = bool(guardado) and guardado.startswith(PREFIXO_PAREAMENTO)
         return {
             "status": novo_status,
             "instance_id": sessao.instance_id,
             "numero": numero,
-            "qr_code": sessao.qr_code if novo_status == "qr_pending" and not limpar_qr else None,
+            "qr_code": None if so_codigo else guardado,
+            "pairing_code": guardado[len(PREFIXO_PAREAMENTO):] if so_codigo else None,
             "degradado": degradado,
             "evolution_state": evolution_state,
         }
 
-    async def conectar(self) -> Dict[str, Any]:
+    async def conectar(self, numero: Optional[str] = None) -> Dict[str, Any]:
         """
         Garante que a instância existe na Evolution, inicia o pareamento e
         retorna o QR code para exibição no portal.
+
+        Com `numero`, também pede o código de pareamento de 8 caracteres
+        ("Conectar com número de telefone" no WhatsApp), para quando o QR code
+        não puder ser lido ou o WhatsApp recusar a leitura.
         """
+        if numero:
+            self._numero_pareamento = normalizar_numero_pareamento(numero)
         sessao = await self._get_sessao()
         if not sessao:
             raise WhatsAppIntegrationError(
@@ -220,8 +247,8 @@ class WhatsAppService:
                 )
                 qr = (criado or {}).get("qrcode", {}).get("base64") if isinstance(criado, dict) else None
                 pairing = (criado or {}).get("qrcode", {}).get("pairingCode") if isinstance(criado, dict) else None
-                if qr:
-                    await self._persistir(sessao, status="qr_pending", qr_code=qr)
+                if qr or pairing:
+                    await self._persistir(sessao, status="qr_pending", qr_code=qr or f"{PREFIXO_PAREAMENTO}{pairing}")
                     return {
                         "status": "qr_pending",
                         "instance_id": sessao.instance_id,
@@ -234,8 +261,8 @@ class WhatsAppService:
             qr = data.get("base64") or (data.get("qrcode") or {}).get("base64")
             pairing = data.get("pairingCode") or (data.get("qrcode") or {}).get("pairingCode")
 
-            # Se não veio QR, pode já ter conectado nesse meio tempo
-            if not qr:
+            # Se não veio QR nem código, pode já ter conectado nesse meio tempo
+            if not qr and not pairing:
                 estado = await self._client.get_instance_status(sessao.instance_id)
                 if estado.get("instance", {}).get("state") == "open":
                     await self._persistir(sessao, status="connected", limpar_qr=True)
@@ -261,12 +288,12 @@ class WhatsAppService:
                 qr = (criado or {}).get("qrcode", {}).get("base64") if isinstance(criado, dict) else None
                 pairing = (criado or {}).get("qrcode", {}).get("pairingCode") if isinstance(criado, dict) else None
 
-                if not qr:
+                if not qr and not pairing:
                     raise WhatsAppIntegrationError(
                         "A Evolution não retornou um QR code. Tente novamente em alguns segundos."
                     )
 
-            await self._persistir(sessao, status="qr_pending", qr_code=qr)
+            await self._persistir(sessao, status="qr_pending", qr_code=qr or f"{PREFIXO_PAREAMENTO}{pairing}")
             log.info("whatsapp_qr_gerado", tenant_id=str(self._tenant_id)[:8])
 
             return {

@@ -121,6 +121,11 @@ class ConfiguracaoAgenteResponse(BaseModel):
     voz: str = VOZ_PADRAO
 
 
+class ConectarWhatsAppRequest(BaseModel):
+    # Com número, a resposta inclui o código de pareamento além do QR code.
+    numero: Optional[str] = None
+
+
 class CriarCorretorRequest(BaseModel):
     nome: str
     telefone: str
@@ -479,13 +484,15 @@ async def status_whatsapp(admin=Depends(require_admin)):
 
 @router.post(
     "/whatsapp/conectar",
-    summary="Inicia a conexão do WhatsApp e gera o QR code",
+    summary="Inicia a conexão do WhatsApp (QR code e, com número, código de pareamento)",
 )
-async def conectar_whatsapp(admin=Depends(require_admin)):
+async def conectar_whatsapp(
+    body: Optional[ConectarWhatsAppRequest] = None, admin=Depends(require_admin)
+):
     async with get_session(admin.tenant_id) as session:
         service = WhatsAppService(session, admin.tenant_id)
         try:
-            resultado = await service.conectar()
+            resultado = await service.conectar(numero=body.numero if body else None)
         except WhatsAppIntegrationError as e:
             raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(e))
 

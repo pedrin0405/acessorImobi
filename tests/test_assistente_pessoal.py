@@ -78,3 +78,16 @@ def test_numero_confere_aceita_jid_sem_nono_digito():
     assert numero_confere("556392185349", "+5563992185349")  # JID antigo, sem o 9
     assert not numero_confere("5563991110000", "+5563992185349")
     assert not numero_confere("abc", "+5563992185349")
+
+
+def test_normalizar_numero_pareamento():
+    import pytest
+
+    from app.domain.whatsapp.service import WhatsAppIntegrationError, normalizar_numero_pareamento
+
+    assert normalizar_numero_pareamento("(63) 99128-0474") == "5563991280474"
+    assert normalizar_numero_pareamento("+55 63 99128-0474") == "5563991280474"
+    assert normalizar_numero_pareamento("6332211234") == "556332211234"
+    for ruim in ("", "123", "abc", "5563991280474999999"):
+        with pytest.raises(WhatsAppIntegrationError):
+            normalizar_numero_pareamento(ruim)

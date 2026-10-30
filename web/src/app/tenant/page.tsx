@@ -108,6 +108,7 @@ export default function TenantAdminPage() {
   const [whatsapp, setWhatsapp] = useState<WhatsAppStatus | null>(null);
   const [whatsappLoading, setWhatsappLoading] = useState(false);
   const [whatsappErro, setWhatsappErro] = useState<string | null>(null);
+  const [numeroPareamento, setNumeroPareamento] = useState("");
   const [whatsappAcao, setWhatsappAcao] = useState(false);
 
   // Modal recusa
@@ -293,12 +294,15 @@ export default function TenantAdminPage() {
     }
   };
 
-  const handleConectarWhatsApp = async () => {
+  const handleConectarWhatsApp = async (numero?: string) => {
     setWhatsappAcao(true);
     setWhatsappErro(null);
 
     try {
-      const res = await fetchApi("/admin/whatsapp/conectar", { method: "POST" });
+      const res = await fetchApi("/admin/whatsapp/conectar", {
+        method: "POST",
+        body: JSON.stringify(numero ? { numero } : {}),
+      });
       const data = await res.json().catch(() => ({}));
 
       if (res.ok) {
@@ -899,7 +903,7 @@ export default function TenantAdminPage() {
                         </button>
                       ) : (
                         <button
-                          onClick={handleConectarWhatsApp}
+                          onClick={() => handleConectarWhatsApp()}
                           disabled={whatsappAcao}
                           className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded-xl text-sm font-medium shadow-sm transition-colors"
                         >
@@ -912,6 +916,39 @@ export default function TenantAdminPage() {
                         </button>
                       )}
                     </div>
+                  )}
+
+                  {whatsapp.status !== "not_provisioned" && whatsapp.status !== "connected" && (
+                    <form
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        handleConectarWhatsApp(numeroPareamento);
+                      }}
+                      className="space-y-2 pt-3 border-t border-slate-200"
+                    >
+                      <label htmlFor="numero-pareamento" className="block text-xs font-medium text-slate-600">
+                        Não consegue ler o QR code? Conecte com o número do WhatsApp
+                      </label>
+                      <div className="flex flex-wrap gap-2">
+                        <input
+                          id="numero-pareamento"
+                          type="tel"
+                          inputMode="tel"
+                          autoComplete="off"
+                          value={numeroPareamento}
+                          onChange={(e) => setNumeroPareamento(e.target.value)}
+                          placeholder="DDD + número, ex.: 63 99999-9999"
+                          className="flex-1 min-w-[12rem] px-3 py-2 border border-slate-300 rounded-xl text-sm focus:outline-none focus:border-slate-900"
+                        />
+                        <button
+                          type="submit"
+                          disabled={whatsappAcao || numeroPareamento.replace(/\D/g, "").length < 10}
+                          className="px-4 py-2 bg-slate-900 hover:bg-slate-700 disabled:opacity-50 text-white rounded-xl text-sm font-medium transition-colors"
+                        >
+                          Conectar por código
+                        </button>
+                      </div>
+                    </form>
                   )}
 
                   {whatsapp.status === "qr_pending" && (
@@ -930,6 +967,23 @@ export default function TenantAdminPage() {
                       <p className="font-medium text-slate-800">WhatsApp conectado</p>
                       <p className="text-xs text-slate-500">
                         O agente já pode enviar e receber mensagens por este número.
+                      </p>
+                    </div>
+                  ) : !qrSrc && whatsapp.pairing_code ? (
+                    <div className="text-center space-y-3">
+                      <p className="text-xs uppercase tracking-wide text-slate-400">Código de pareamento</p>
+                      <p
+                        className="font-mono text-3xl font-semibold tracking-widest text-slate-900 select-all"
+                        aria-label={`Código ${whatsapp.pairing_code.split("").join(" ")}`}
+                      >
+                        {whatsapp.pairing_code.length === 8
+                          ? `${whatsapp.pairing_code.slice(0, 4)}-${whatsapp.pairing_code.slice(4)}`
+                          : whatsapp.pairing_code}
+                      </p>
+                      <p className="text-xs text-slate-600 max-w-xs mx-auto">
+                        No celular: WhatsApp → <strong>Dispositivos conectados</strong> →{" "}
+                        <strong>Conectar dispositivo</strong> → <strong>Conectar com número de telefone</strong> e
+                        digite o código. Ele vale por poucos minutos.
                       </p>
                     </div>
                   ) : qrSrc ? (

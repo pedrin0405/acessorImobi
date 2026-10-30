@@ -12,7 +12,13 @@ from uuid import UUID
 import structlog
 from sqlalchemy.sql import text
 
-from app.domain.whatsapp.service import STATE_MAP, SessaoWhatsApp, WhatsAppIntegrationError, WhatsAppService
+from app.domain.whatsapp.service import (
+    PREFIXO_PAREAMENTO,
+    STATE_MAP,
+    SessaoWhatsApp,
+    WhatsAppIntegrationError,
+    WhatsAppService,
+)
 from app.shared.phone import normalize_phone
 
 log = structlog.get_logger()
@@ -112,14 +118,18 @@ class CorretorWhatsAppService(WhatsAppService):
             if confere is None:
                 # Não deu para verificar agora (Evolution indisponível): não
                 # desconecta o aparelho, só adia a liberação para a próxima consulta.
+                so_codigo = bool(sessao.qr_code) and sessao.qr_code.startswith(PREFIXO_PAREAMENTO)
                 return {"status": "qr_pending" if sessao.qr_code else sessao.status, "numero": sessao.numero,
-                        "qr_code": sessao.qr_code, "degradado": True}
+                        "qr_code": None if so_codigo else sessao.qr_code, "degradado": True}
 
         await self._persistir(sessao, status=novo_status, limpar_qr=novo_status in ("connected", "disconnected"))
+        guardado = sessao.qr_code if novo_status == "qr_pending" else None
+        so_codigo = bool(guardado) and guardado.startswith(PREFIXO_PAREAMENTO)
         return {
             "status": novo_status,
             "numero": sessao.numero,
-            "qr_code": sessao.qr_code if novo_status == "qr_pending" else None,
+            "qr_code": None if so_codigo else guardado,
+            "pairing_code": guardado[len(PREFIXO_PAREAMENTO):] if so_codigo else None,
         }
 
     async def _numero_confere(self, sessao: SessaoWhatsApp) -> Optional[bool]:
