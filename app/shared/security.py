@@ -26,6 +26,8 @@ def create_access_token(
     tenant_id: Optional[UUID] = None,
     role: str = "corretor",
     expires_delta: Optional[timedelta] = None,
+    corretor_id: Optional[UUID] = None,
+    admin_id: Optional[UUID] = None,
 ) -> str:
     expire = datetime.now(timezone.utc) + (
         expires_delta or timedelta(minutes=settings.access_token_expire_minutes)
@@ -37,6 +39,10 @@ def create_access_token(
     }
     if tenant_id:
         payload["tid"] = str(tenant_id)
+    if corretor_id:
+        payload["cid"] = str(corretor_id)
+    if admin_id:
+        payload["aid"] = str(admin_id)
     return jwt.encode(payload, settings.secret_key, algorithm=ALGORITHM)
 
 

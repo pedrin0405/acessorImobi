@@ -1,0 +1,208 @@
+# =============================================================================
+# acessorImobi — Docker Compose para EasyPanel
+# Sem Traefik (o EasyPanel já faz o proxy e o HTTPS), sem container_name e sem
+# portas publicadas. Os domínios são ligados aos serviços na interface do
+# EasyPanel (veja docs/DEPLOY-EASYPANEL.md).
+# =============================================================================
+
+x-api-env: &api-env
+  DATABASE_URL: postgresql+asyncpg://acessor:${POSTGRES_PASSWORD}@postgres:5432/acessorimobi
+  REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+  MINIO_ENDPOINT: minio:9000
+  MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
+  MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
+  MINIO_BUCKET_AUDIOS: audios
+  OLLAMA_BASE_URL: http://ollama:11434
+  WHISPER_BASE_URL: http://whisper:9000
+  EVOLUTION_BASE_URL: http://evolution:8080
+  EVOLUTION_API_KEY: ${EVOLUTION_API_KEY}
+  SECRET_KEY: ${SECRET_KEY}
+  ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+  DEV_PANEL_PASSWORD: ${DEV_PANEL_PASSWORD:-admin123}
+  ENVIRONMENT: ${ENVIRONMENT:-production}
+  LOG_LEVEL: ${LOG_LEVEL:-info}
+  BASE_DOMAIN: ${BASE_DOMAIN}
+
+services:
+  web:
+    build:
+      context: .
+      dockerfile: infra/docker/Dockerfile.web
+      args:
+        NEXT_PUBLIC_API_URL: https://api.${BASE_DOMAIN}
+    restart: unless-stopped
+    environment:
+      <<: *api-env
+      API_INTERNAL_URL: http://api:8000
+    depends_on:
+      - api
+    networks:
+      - internal
+
+  api:
+    build:
+      context: .
+      dockerfile: infra/docker/Dockerfile.api
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      <<: *api-env
+      WORKER_COUNT: 4
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - internal
+
+  worker:
+    build:
+      context: .
+      dockerfile: infra/docker/Dockerfile.api
+    restart: unless-stopped
+    env_file:
+      - .env
+    command: python -m app.worker.main
+    environment:
+      <<: *api-env
+      WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-8}
+      WORKER_MAX_PER_TENANT: ${WORKER_MAX_PER_TENANT:-3}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - internal
+
+  scheduler:
+    build:
+      context: .
+      dockerfile: infra/docker/Dockerfile.api
+    restart: unless-stopped
+    env_file:
+      - .env
+    command: python -m app.scheduler.main
+    environment:
+      <<: *api-env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - internal
+
+  postgres:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: acessor
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: acessorimobi
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./infra/postgres/init.sql:/docker-entrypoint-initdb.d/00_init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U acessor -d acessorimobi"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - internal
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: redis-server --requirepass ${REDIS_PASSWORD} --maxmemory 512mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - internal
+
+  evolution:
+    image: evoapicloud/evolution-api:v2.3.7
+    restart: unless-stopped
+    environment:
+      SERVER_URL: https://evo.${BASE_DOMAIN}
+      AUTHENTICATION_API_KEY: ${EVOLUTION_API_KEY}
+      DATABASE_ENABLED: "true"
+      DATABASE_PROVIDER: postgresql
+      DATABASE_CONNECTION_URI: postgresql://acessor:${POSTGRES_PASSWORD}@postgres:5432/evolution
+      DATABASE_CONNECTION_CLIENT_NAME: evolution
+      CACHE_REDIS_ENABLED: "true"
+      CACHE_REDIS_URI: redis://:${REDIS_PASSWORD}@redis:6379/1
+      CACHE_REDIS_PREFIX_KEY: evolution
+      RABBITMQ_ENABLED: "false"
+      WEBHOOK_GLOBAL_ENABLED: "false"
+      CONFIG_SESSION_PHONE_CLIENT: AcessorImobi
+      # ERROR em operação normal; use INFO/DEBUG para diagnosticar webhooks.
+      LOG_LEVEL: ${EVOLUTION_LOG_LEVEL:-ERROR}
+    volumes:
+      - evolution_instances:/evolution/instances
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - internal
+
+  whisper:
+    image: onerahmet/openai-whisper-asr-webservice:latest
+    restart: unless-stopped
+    environment:
+      ASR_MODEL: ${WHISPER_MODEL:-small}
+      ASR_ENGINE: ${WHISPER_ENGINE:-faster_whisper}
+      ASR_QUANTIZATION: ${WHISPER_QUANTIZATION:-int8}
+      MODEL_IDLE_TIMEOUT: ${WHISPER_IDLE_TIMEOUT:-600}
+    volumes:
+      - whisper_models:/root/.cache/whisper
+    networks:
+      - internal
+
+  minio:
+    image: cgr.dev/chainguard/minio:latest
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY}
+    volumes:
+      - minio_data:/data
+    networks:
+      - internal
+
+  # Opcional: só necessário com LLM_PROVIDER=ollama (CPU, lento e pesado em VPS).
+  # Para ativar: COMPOSE_PROFILES=ollama
+  ollama:
+    image: ollama/ollama:latest
+    profiles: ["ollama"]
+    restart: unless-stopped
+    environment:
+      OLLAMA_NUM_PARALLEL: ${OLLAMA_NUM_PARALLEL:-1}
+      OLLAMA_MAX_LOADED_MODELS: "1"
+      OLLAMA_KEEP_ALIVE: 10m
+    volumes:
+      - ollama_models:/root/.ollama
+    networks:
+      - internal
+
+networks:
+  internal:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:
+  minio_data:
+  ollama_models:
+  whisper_models:
+  evolution_instances:

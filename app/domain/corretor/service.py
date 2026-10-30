@@ -63,11 +63,87 @@ class CorretorService:
         log.info("corretor_criado_pendente", tenant_id=str(tenant_id)[:8])
         return Corretor(row)
 
-    async def get_by_id(self, corretor_id: UUID) -> Optional[Corretor]:
-        result = await self._session.execute(
-            text("SELECT * FROM corretores WHERE id=:id"),
-            {"id": str(corretor_id)},
+    async def criar(
+        self,
+        tenant_id: UUID,
+        nome: str,
+        telefone: str,
+        email: Optional[str] = None,
+        admin_id: Optional[UUID] = None,
+    ) -> Corretor:
+        """
+        Cadastro manual de corretor pelo administrador da imobiliária.
+        O corretor já entra ativo (não passa pela fila de aprovação).
+        Se o número já existir como pendente/recusado, é promovido a ativo.
+        """
+        tel = normalize_phone(telefone)
+
+        existente = await self._session.execute(
+            text("SELECT * FROM corretores WHERE tenant_id=:tid AND telefone=:tel"),
+            {"tid": str(tenant_id), "tel": tel},
         )
+        row = existente.first()
+
+        if row:
+            if row.status == "active":
+                raise ValueError("Já existe um corretor ativo com este telefone nesta imobiliária.")
+
+            result = await self._session.execute(
+                text("""
+                    UPDATE corretores SET
+                        nome=:nome,
+                        email=:email,
+                        status='active',
+                        recusa_motivo=NULL,
+                        aprovado_por=:admin_id,
+                        aprovado_em=NOW(),
+                        updated_at=NOW()
+                    WHERE id=:id
+                    RETURNING *
+                """),
+                {
+                    "nome": nome.strip(),
+                    "email": email.strip().lower() if email else None,
+                    "admin_id": str(admin_id) if admin_id else None,
+                    "id": str(row.id),
+                },
+            )
+            log.info("corretor_promovido_pelo_admin", tenant_id=str(tenant_id)[:8])
+            return Corretor(result.first())
+
+        result = await self._session.execute(
+            text("""
+                INSERT INTO corretores (
+                    tenant_id, telefone, nome, email, status, aprovado_por, aprovado_em
+                ) VALUES (
+                    :tid, :tel, :nome, :email, 'active', :admin_id, NOW()
+                )
+                RETURNING *
+            """),
+            {
+                "tid": str(tenant_id),
+                "tel": tel,
+                "nome": nome.strip(),
+                "email": email.strip().lower() if email else None,
+                "admin_id": str(admin_id) if admin_id else None,
+            },
+        )
+        log.info("corretor_criado_pelo_admin", tenant_id=str(tenant_id)[:8])
+        return Corretor(result.first())
+
+    async def get_by_id(
+        self, corretor_id: UUID, tenant_id: Optional[UUID] = None
+    ) -> Optional[Corretor]:
+        if tenant_id:
+            result = await self._session.execute(
+                text("SELECT * FROM corretores WHERE id=:id AND tenant_id=:tid"),
+                {"id": str(corretor_id), "tid": str(tenant_id)},
+            )
+        else:
+            result = await self._session.execute(
+                text("SELECT * FROM corretores WHERE id=:id"),
+                {"id": str(corretor_id)},
+            )
         row = result.first()
         return Corretor(row) if row else None
 
@@ -99,11 +175,22 @@ class CorretorService:
         aprovado: bool,
         motivo: Optional[str],
         admin_id: UUID,
+        tenant_id: Optional[UUID] = None,
     ) -> Corretor:
         """Aprova ou recusa o corretor. Registra autor e horário."""
         novo_status = "active" if aprovado else "rejected"
+        tenant_clause = "AND tenant_id = :tid" if tenant_id else ""
+        params: Dict[str, Any] = {
+            "status": novo_status,
+            "motivo": motivo,
+            "admin_id": str(admin_id),
+            "id": str(corretor_id),
+        }
+        if tenant_id:
+            params["tid"] = str(tenant_id)
+
         await self._session.execute(
-            text("""
+            text(f"""
                 UPDATE corretores SET
                     status=:status,
                     recusa_motivo=:motivo,
@@ -111,28 +198,38 @@ class CorretorService:
                     aprovado_em=NOW(),
                     updated_at=NOW()
                 WHERE id=:id
+                  {tenant_clause}
             """),
-            {
-                "status": novo_status,
-                "motivo": motivo,
-                "admin_id": str(admin_id),
-                "id": str(corretor_id),
-            },
+            params,
         )
-        return await self.get_by_id(corretor_id)
+        return await self.get_by_id(corretor_id, tenant_id)
 
-    async def bloquear(self, corretor_id: UUID) -> None:
+    async def bloquear(
+        self, corretor_id: UUID, tenant_id: Optional[UUID] = None
+    ) -> None:
         """Bloqueia um corretor após nova tentativa de acesso pós-recusa."""
+        tenant_clause = "AND tenant_id = :tid" if tenant_id else ""
+        params: Dict[str, Any] = {"id": str(corretor_id)}
+        if tenant_id:
+            params["tid"] = str(tenant_id)
         await self._session.execute(
-            text("UPDATE corretores SET status='blocked', updated_at=NOW() WHERE id=:id"),
-            {"id": str(corretor_id)},
+            text(f"""
+                UPDATE corretores SET status='blocked', updated_at=NOW()
+                WHERE id=:id {tenant_clause}
+            """),
+            params,
         )
 
-    async def listar(self, status: Optional[str] = None) -> List[Corretor]:
-        query = "SELECT * FROM corretores"
+    async def listar(
+        self, tenant_id: Optional[UUID] = None, status: Optional[str] = None
+    ) -> List[Corretor]:
+        query = "SELECT * FROM corretores WHERE 1=1"
         params = {}
+        if tenant_id:
+            query += " AND tenant_id=:tid"
+            params["tid"] = str(tenant_id)
         if status:
-            query += " WHERE status=:status"
+            query += " AND status=:status"
             params["status"] = status
         query += " ORDER BY created_at DESC"
         result = await self._session.execute(text(query), params)

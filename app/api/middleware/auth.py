@@ -73,12 +73,16 @@ async def require_admin(
     role = payload.get("role")
     if role not in ("admin", "developer"):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+
+    # Rotas do portal da imobiliária exigem escopo de tenant.
+    # O papel developer opera apenas no painel /dev.
     tenant_id = payload.get("tid")
-    if not tenant_id and role != "developer":
+    if not tenant_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+
     return AdminPrincipal(
         sub=payload["sub"],
-        tenant_id=UUID(tenant_id) if tenant_id else None,
+        tenant_id=UUID(tenant_id),
         admin_id=UUID(payload.get("aid", "00000000-0000-0000-0000-000000000000")),
     )
 
@@ -89,8 +93,14 @@ async def require_corretor(
     payload = _decode_token(credentials)
     if payload.get("role") != "corretor":
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+
+    tenant_id = payload.get("tid")
+    corretor_id = payload.get("cid")
+    if not tenant_id or not corretor_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+
     return CorretorPrincipal(
         sub=payload["sub"],
-        tenant_id=UUID(payload["tid"]),
-        corretor_id=UUID(payload["cid"]),
+        tenant_id=UUID(tenant_id),
+        corretor_id=UUID(corretor_id),
     )

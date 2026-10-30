@@ -41,7 +41,9 @@ async def _process_job(job: dict) -> None:
     corretor_id = job["corretor_id"]
 
     tenant_sem = _get_tenant_semaphore(tenant_id)
-    lock = ConversaLock(tenant_id, corretor_id)
+    # Análise do WhatsApp pessoal é lenta (Whisper em CPU) e não deve travar o chat.
+    escopo = "analise" if job.get("tipo_job") == "analisar_atendimento" else ""
+    lock = ConversaLock(tenant_id, corretor_id, escopo=escopo)
 
     try:
         async with tenant_sem:
@@ -54,9 +56,30 @@ async def _process_job(job: dict) -> None:
                 redis = get_redis_pool()
                 queue_key = f"queue:conversa:{tenant_id}:{corretor_id}"
                 await redis.lpush(queue_key, json.dumps(job))  # volta pro início
+                await redis.sadd("queue:active_conversations", queue_key)
                 await asyncio.sleep(1)
     except Exception as e:
-        log.error("job_falhou", error=str(e), job=job, exc_info=True)
+        tentativa = int(job.get("tentativa", 0)) + 1
+        if tentativa <= 2:
+            job["tentativa"] = tentativa
+            redis = get_redis_pool()
+            queue_key = f"queue:conversa:{tenant_id}:{corretor_id}"
+            await redis.rpush(queue_key, json.dumps(job))
+            await redis.sadd("queue:active_conversations", queue_key)
+            log.warning(
+                "job_reagendado",
+                error=str(e),
+                tentativa=tentativa,
+                corretor_id=corretor_id[:8],
+            )
+            await asyncio.sleep(2)
+        else:
+            log.error(
+                "job_falhou_definitivo",
+                error=str(e),
+                job=job,
+                exc_info=True,
+            )
 
 
 async def worker_loop() -> None:

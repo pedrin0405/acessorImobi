@@ -31,7 +31,10 @@ class CriarTenantRequest(BaseModel):
     numero_whatsapp: str          # número do agente em formato livre
     imoview_base_url: str
     imoview_chave: str            # cifrada antes de persistir
-    ollama_model: Optional[str] = "llama3.1:8b-instruct-q4_K_M"
+    ollama_model: Optional[str] = "qwen3:8b"
+    admin_email: Optional[str] = None        # administrador inicial da imobiliária
+    admin_senha: Optional[str] = None        # senha do administrador inicial
+    admin_nome: Optional[str] = None
 
     @field_validator("slug")
     @classmethod
@@ -53,6 +56,12 @@ class TenantResponse(BaseModel):
 
 class SuspenderTenantRequest(BaseModel):
     motivo: str
+
+
+class CriarAdminTenantRequest(BaseModel):
+    nome: str
+    email: str
+    senha: str
 
 
 # --- Endpoints ---
@@ -82,6 +91,9 @@ async def criar_tenant(
                 imoview_chave=body.imoview_chave,
                 ollama_model=body.ollama_model,
                 criado_por=dev.sub,
+                admin_email=body.admin_email,
+                admin_senha=body.admin_senha,
+                admin_nome=body.admin_nome,
             )
         except ValueError as e:
             raise HTTPException(status_code=422, detail=str(e))
@@ -160,3 +172,141 @@ async def metricas_tenant(
     async with get_admin_session() as session:
         service = TenantService(session)
         return await service.metricas(tenant_id)
+
+
+@router.get(
+    "/usage",
+    summary="Consumo de APIs externas e limites diários",
+)
+async def consumo_apis(
+    dias: int = 7,
+    dev=Depends(require_developer),
+):
+    """
+    Painel de consumo: totais por modelo do dia, histórico diário e o estado
+    de cada limite.
+
+    status:
+    - ok: abaixo do limite de alerta
+    - alerta: passou de USAGE_ALERT_PERCENT do limite diário ou por minuto
+    - atingido: limite diário/por minuto alcançado, ou o provedor respondeu
+      429 e as chamadas estão em pausa (o agente usa o fallback)
+    - sem_limite: serviço local, sem cota
+    """
+    from app.domain.usage import consultar_uso, cooldown_restante, uso_tempo_real
+    from app.shared.config import get_settings
+
+    cfg = get_settings()
+    dados = await consultar_uso(dias=dias)
+    alerta = max(1, min(cfg.usage_alert_percent, 100)) / 100
+
+    def _status(info: dict) -> str:
+        if info["cooldown_segundos"] > 0:
+            return "atingido"
+        if info["limite"] <= 0 and info["rpm_limite"] <= 0:
+            return "sem_limite"
+        pares = [
+            (info["usado"], info["limite"]),
+            (info["rpm"], info["rpm_limite"]),
+        ]
+        if any(lim > 0 and uso >= lim for uso, lim in pares):
+            return "atingido"
+        if any(lim > 0 and uso >= lim * alerta for uso, lim in pares):
+            return "alerta"
+        return "ok"
+
+    por_operacao: dict = {}
+    for m in dados["modelos"]:
+        agg = por_operacao.setdefault(
+            m["operation"],
+            {"requests": 0, "errors": 0, "rate_limited": 0, "tokens": 0, "por_provider": {}},
+        )
+        agg["requests"] += m["requests"]
+        agg["errors"] += m["errors"]
+        if m["provider"] == "gemini":
+            agg["rate_limited"] += m.get("rate_limited", 0)
+            agg["tokens"] += m["input_tokens"] + m["output_tokens"]
+        agg["por_provider"][m["provider"]] = (
+            agg["por_provider"].get(m["provider"], 0) + m["requests"]
+        )
+
+    # Os limites são do Gemini. O Qwen3 e o Whisper rodam localmente e não
+    # consomem cota; ficam visíveis na lista de modelos, mas fora do limite.
+    definicoes = {
+        "chat": ("gemini", "chat", cfg.gemini_chat_daily_limit, cfg.gemini_chat_rpm_limit, cfg.gemini_model),
+        "tts": ("gemini", "tts", cfg.gemini_tts_daily_limit, cfg.gemini_tts_rpm_limit, cfg.gemini_tts_model),
+        "transcricao": ("whisper", "transcription", 0, 0, None),
+    }
+    limites = {}
+    for chave, (provider, operacao, limite, rpm_limite, modelo) in definicoes.items():
+        agg = por_operacao.get(operacao, {})
+        tempo_real = await uso_tempo_real(provider, operacao)
+        cooldown = await cooldown_restante(provider, f"{operacao}:{modelo}") if modelo else 0
+        info = {
+            "limite": limite,
+            "usado": agg.get("por_provider", {}).get(provider, 0),
+            "rpm_limite": rpm_limite,
+            "rpm": tempo_real["rpm"],
+            "erros": agg.get("errors", 0),
+            "rate_limited": agg.get("rate_limited", 0),
+            "tokens": agg.get("tokens", 0),
+            "ultimo_429": tempo_real["ultimo_429"],
+            "cooldown_segundos": cooldown,
+        }
+        info["status"] = _status(info)
+        limites[chave] = info
+
+    return {
+        "dia": dados["dia"],
+        "alerta_percentual": round(alerta * 100),
+        "limites": limites,
+        "modelos": dados["modelos"],
+        "historico": dados["historico"],
+        "totais": dados["totais"],
+    }
+
+
+@router.post(
+    "/tenants/{tenant_id}/admins",
+    status_code=status.HTTP_201_CREATED,
+    summary="Cria ou redefine o administrador de um tenant",
+)
+async def criar_admin_tenant(
+    tenant_id: UUID,
+    body: CriarAdminTenantRequest,
+    dev=Depends(require_developer),
+):
+    """
+    Provisiona o administrador inicial (ou redefine a senha) de uma imobiliária.
+    A senha é armazenada com bcrypt.
+    """
+    from sqlalchemy.sql import text
+    from app.shared.security import hash_password
+
+    async with get_admin_session() as session:
+        existe = await session.execute(
+            text("SELECT id FROM tenants WHERE id = :tid AND status != 'deleted'"),
+            {"tid": str(tenant_id)},
+        )
+        if not existe.first():
+            raise HTTPException(status_code=404, detail="Tenant não encontrado")
+
+        await session.execute(
+            text("""
+                INSERT INTO tenant_admins (tenant_id, nome, email, senha_hash, ativo)
+                VALUES (:tid, :nome, :email, :senha, TRUE)
+                ON CONFLICT (tenant_id, email) DO UPDATE
+                    SET nome = EXCLUDED.nome,
+                        senha_hash = EXCLUDED.senha_hash,
+                        ativo = TRUE
+            """),
+            {
+                "tid": str(tenant_id),
+                "nome": body.nome,
+                "email": body.email.strip().lower(),
+                "senha": hash_password(body.senha),
+            },
+        )
+
+    log.info("admin_tenant_provisionado", tenant_id=str(tenant_id), por=dev.sub)
+    return {"status": "created", "email": body.email.strip().lower()}

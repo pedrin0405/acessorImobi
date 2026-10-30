@@ -19,6 +19,7 @@ from app.domain.corretor.service import CorretorService
 from app.shared.database import get_admin_session, get_session
 from app.shared.phone import normalize_phone
 from app.shared.redis import get_redis_pool
+from app.shared.security import mask_phone
 
 log = structlog.get_logger()
 
@@ -27,21 +28,21 @@ log = structlog.get_logger()
 INSTANCE_TENANT_CACHE_TTL = 300
 
 
-async def _resolve_tenant_by_instance(instance_id: str) -> Optional[UUID]:
+async def _resolve_instancia(instance_id: str) -> Optional[Dict[str, Any]]:
     """
-    Resolve o tenant_id a partir do instanceId da sessão WhatsApp.
+    Resolve tenant e dono da sessão (agente ou corretor) pelo instanceId.
     Busca primeiro no Redis (cache), depois no PostgreSQL.
     Nunca usa dado do corpo da mensagem para esta resolução.
     """
     redis = get_redis_pool()
-    cache_key = f"instance_tenant:{instance_id}"
+    cache_key = f"instance_owner:{instance_id}"
     cached = await redis.get(cache_key)
     if cached:
-        return UUID(cached)
+        return json.loads(cached)
 
     async with get_admin_session() as session:
         row = await session.execute(
-            text("SELECT tenant_id FROM whatsapp_sessions WHERE instance_id = :iid"),
+            text("SELECT tenant_id, tipo, corretor_id FROM whatsapp_sessions WHERE instance_id = :iid"),
             {"iid": instance_id},
         )
         result = row.first()
@@ -49,9 +50,18 @@ async def _resolve_tenant_by_instance(instance_id: str) -> Optional[UUID]:
     if not result:
         return None
 
-    tenant_id = result[0]
-    await redis.set(cache_key, str(tenant_id), ex=INSTANCE_TENANT_CACHE_TTL)
-    return tenant_id
+    info = {
+        "tenant_id": str(result.tenant_id),
+        "tipo": result.tipo,
+        "corretor_id": str(result.corretor_id) if result.corretor_id else None,
+    }
+    await redis.set(cache_key, json.dumps(info), ex=INSTANCE_TENANT_CACHE_TTL)
+    return info
+
+
+async def _resolve_tenant_by_instance(instance_id: str) -> Optional[UUID]:
+    info = await _resolve_instancia(instance_id)
+    return UUID(info["tenant_id"]) if info else None
 
 
 async def _deduplicate(tenant_id: UUID, message_id: str) -> bool:
@@ -82,13 +92,30 @@ async def processar_webhook(instance_id: str, payload: Dict[str, Any]) -> None:
     message_id = key.get("id", "")
     from_me = key.get("fromMe", False)
 
+    # Número pessoal de corretor: só observação dos atendimentos (lê os dois
+    # lados da conversa). Nunca entra na fila de resposta do agente.
+    instancia = await _resolve_instancia(instance_id)
+    if instancia and instancia["tipo"] == "corretor":
+        from app.domain.atendimento.ingestao import ingerir_mensagem_atendimento
+
+        await ingerir_mensagem_atendimento(
+            UUID(instancia["tenant_id"]), UUID(instancia["corretor_id"]), data
+        )
+        return
+
     # Ignorar mensagens enviadas pelo próprio agente
     if from_me:
         return
 
-    remote_jid = key.get("remoteJid", "")
-    # Normaliza o número removendo o sufixo '@s.whatsapp.net'
-    telefone_raw = remote_jid.split("@")[0] if "@" in remote_jid else remote_jid
+    # O WhatsApp pode endereçar por LID; o telefone real vem em remoteJidAlt.
+    telefone_raw = _extrair_telefone(key)
+    if not telefone_raw:
+        log.warning(
+            "webhook_sem_telefone_resolvivel",
+            remote_jid=str(key.get("remoteJid") or "")[:32],
+            addressing_mode=key.get("addressingMode"),
+        )
+        return
 
     # --- 1. Resolve tenant pelo instanceId ---
     tenant_id = await _resolve_tenant_by_instance(instance_id)
@@ -100,7 +127,13 @@ async def processar_webhook(instance_id: str, payload: Dict[str, Any]) -> None:
     try:
         telefone = normalize_phone(telefone_raw)
     except ValueError:
-        log.warning("webhook_telefone_invalido", raw=telefone_raw[:10])
+        # O tamanho ajuda a identificar JIDs móveis antigos (12 dígitos), que
+        # não têm o nono dígito e antes eram descartados silenciosamente.
+        log.warning(
+            "webhook_telefone_invalido",
+            raw=mask_phone(telefone_raw),
+            tamanho=len(telefone_raw),
+        )
         return
 
     # --- 3. Deduplica ---
@@ -111,6 +144,18 @@ async def processar_webhook(instance_id: str, payload: Dict[str, Any]) -> None:
     # --- 4. Extrai conteúdo da mensagem ---
     tipo, conteudo, audio_url = _extrair_conteudo(message, data)
 
+    # Mensagem sem conteúdo não deve acionar a IA nem entrar no histórico.
+    if tipo == "text" and not (conteudo or "").strip():
+        log.info("webhook_mensagem_sem_conteudo", message_id=message_id, tipo=tipo)
+        return
+    if tipo == "audio" and not audio_url:
+        # O webhook nem sempre traz a mídia no payload; o worker busca o
+        # base64 na Evolution via message key. Só aborta se não houver key.
+        if not key.get("id"):
+            log.warning("webhook_audio_sem_midia", message_id=message_id)
+            return
+        log.info("webhook_audio_sem_url_será_buscado", message_id=message_id)
+
     # --- 5. Localiza ou cria corretor ---
     async with get_session(tenant_id) as session:
         corretor_service = CorretorService(session)
@@ -120,8 +165,6 @@ async def processar_webhook(instance_id: str, payload: Dict[str, Any]) -> None:
         )
 
         # --- 6. Persiste a mensagem ---
-        from sqlalchemy import insert
-        from app.shared.database import get_session  # evitar ciclo
         msg_insert = text("""
             INSERT INTO mensagens (
                 tenant_id, corretor_id, message_id,
@@ -150,12 +193,27 @@ async def processar_webhook(instance_id: str, payload: Dict[str, Any]) -> None:
 
     # --- 7. Enfileira para o worker ---
     redis = get_redis_pool()
+    # Para áudio sem mídia utilizável no payload, guarda o objeto da mensagem
+    # (sem base64) para a Evolution decodificar a mídia sem depender do banco dela.
+    mensagem_original = None
+    if tipo == "audio" and (not audio_url or "mmg.whatsapp.net" in (audio_url or "")):
+        mensagem_original = data.get("message") or {}
     job_payload = json.dumps({
         "tenant_id": str(tenant_id),
         "corretor_id": str(corretor.id),
         "mensagem_id": mensagem_id,
         "tipo": tipo,
         "audio_url": audio_url,
+        # Key da mensagem: permite ao worker baixar a mídia via Evolution
+        # quando o webhook não traz a URL/base64.
+        "message_key": {
+            "remoteJid": key.get("remoteJid"),
+            "remoteJidAlt": key.get("remoteJidAlt"),
+            "fromMe": key.get("fromMe", False),
+            "id": key.get("id"),
+            "participant": key.get("participant"),
+        },
+        "message": mensagem_original,
     })
     # Fila particionada por conversa: garante ordem por conversa, paralelismo entre conversas
     queue_key = f"queue:conversa:{tenant_id}:{corretor.id}"
@@ -170,11 +228,62 @@ async def processar_webhook(instance_id: str, payload: Dict[str, Any]) -> None:
     )
 
 
+def _extrair_telefone(key: Dict[str, Any]) -> Optional[str]:
+    """
+    Extrai o telefone real do JID.
+
+    O WhatsApp passou a usar endereçamento LID: `remoteJid` pode ser
+    `202237125087346@lid`, enquanto o número real vem em `remoteJidAlt`
+    (ou `senderPn`/`participantPn`). Também removemos o sufixo de device
+    (`:12`) que aparece em alguns JIDs multi-device.
+    """
+    jid_principal = str(key.get("remoteJid") or "")
+
+    # Grupos e broadcasts não são conversas de corretor.
+    if jid_principal.endswith("@g.us") or jid_principal.endswith("@broadcast"):
+        return None
+
+    candidatos = [
+        key.get("remoteJidAlt"),
+        key.get("senderPn"),
+        key.get("participantPn"),
+        key.get("participant"),
+    ]
+
+    # Só usa o remoteJid como telefone quando ele não for um LID.
+    if jid_principal and not jid_principal.endswith("@lid"):
+        candidatos.append(jid_principal)
+
+    for candidato in candidatos:
+        if not candidato:
+            continue
+        raw = "".join(
+            ch for ch in str(candidato).split("@")[0].split(":")[0] if ch.isdigit()
+        )
+        if len(raw) >= 10:
+            return raw
+
+    return None
+
+
 def _extrair_conteudo(message: Dict, data: Dict):
     """Extrai tipo e conteúdo da mensagem Evolution API."""
     tipo = "text"
     conteudo = None
     audio_url = None
+
+    # Desembrulha mensagens efêmeras / de visualização única / com legenda
+    for wrapper in (
+        "ephemeralMessage",
+        "viewOnceMessage",
+        "viewOnceMessageV2",
+        "documentWithCaptionMessage",
+        "editedMessage",
+    ):
+        inner = message.get(wrapper)
+        if isinstance(inner, dict) and isinstance(inner.get("message"), dict):
+            message = inner["message"]
+            break
 
     if "conversation" in message:
         conteudo = message["conversation"]
@@ -182,8 +291,13 @@ def _extrair_conteudo(message: Dict, data: Dict):
         conteudo = message["extendedTextMessage"].get("text", "")
     elif "audioMessage" in message:
         tipo = "audio"
-        # URL da mídia do Evolution API — será baixada e armazenada no MinIO pelo worker
-        audio_url = data.get("mediaUrl") or data.get("base64")
+        # URL/base64 da mídia — será baixada e armazenada no MinIO pelo worker
+        audio_url = (
+            data.get("mediaUrl")
+            or data.get("base64")
+            or message.get("base64")
+            or message.get("audioMessage", {}).get("base64")
+        )
     elif "imageMessage" in message:
         tipo = "image"
         conteudo = message["imageMessage"].get("caption", "")

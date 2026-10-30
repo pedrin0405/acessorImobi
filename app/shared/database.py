@@ -8,6 +8,7 @@ from contextlib import asynccontextmanager
 from typing import AsyncIterator
 from uuid import UUID
 
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
     async_sessionmaker,
@@ -58,7 +59,8 @@ async def get_session(tenant_id: UUID) -> AsyncIterator[AsyncSession]:
     async with AsyncSessionLocal() as session:
         # Configura a variável de sessão que a RLS usa para filtrar os dados
         await session.execute(
-            f"SET LOCAL app.tenant_id = '{tenant_id}'"
+            text("SELECT set_config('app.tenant_id', :tenant_id, true)"),
+            {"tenant_id": str(tenant_id)},
         )
         try:
             yield session

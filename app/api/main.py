@@ -16,6 +16,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.api.routers import (
+    auth,
+    crm_admin,
     dev_panel,
     tenant_admin,
     corretor_portal,
@@ -45,16 +47,22 @@ app = FastAPI(
 )
 
 # CORS — apenas origens dos portais conhecidos
-ALLOWED_ORIGINS = [
-    f"https://admin.{settings.base_domain}",
-    f"https://corretor.{settings.base_domain}",
-]
+import re
+
+ALLOWED_ORIGINS = []
 if settings.environment == "development":
-    ALLOWED_ORIGINS += ["http://localhost:3000", "http://localhost:3001"]
+    ALLOWED_ORIGINS += [
+        "http://localhost:3000",
+        "http://localhost:3001",
+        "http://127.0.0.1:3000",
+    ]
+
+ALLOWED_ORIGIN_REGEX = rf"https://([a-z0-9-]+\.)?{re.escape(settings.base_domain)}"
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
+    allow_origin_regex=ALLOWED_ORIGIN_REGEX,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
     allow_headers=["Authorization", "Content-Type"],
@@ -79,9 +87,11 @@ async def request_logging(request: Request, call_next):
 
 # --- Routers ---
 app.include_router(health.router, prefix="/health", tags=["Health"])
+app.include_router(auth.router, prefix="/auth", tags=["Autenticação"])
 app.include_router(whatsapp_webhook.router, prefix="/webhook", tags=["WhatsApp"])
 app.include_router(dev_panel.router, prefix="/dev", tags=["Painel Dev"])
 app.include_router(tenant_admin.router, prefix="/admin", tags=["Admin Imobiliária"])
+app.include_router(crm_admin.router, prefix="/admin/crm", tags=["CRM"])
 app.include_router(corretor_portal.router, prefix="/corretor", tags=["Corretor"])
 
 

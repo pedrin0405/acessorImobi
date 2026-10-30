@@ -1,0 +1,192 @@
+@import url("https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* =============================================================================
+   Tema do app (portais da imobiliária e do corretor)
+   Escuro por padrão; `.app-claro` troca para o claro. As telas foram escritas
+   com utilitários claros do Tailwind (bg-white, text-slate-*, border-slate-*):
+   dentro de `.app-tema` eles são remapeados para os tokens abaixo, para que
+   todas as telas sigam o mesmo tema sem reescrever cada componente.
+   ============================================================================= */
+
+:root {
+  --foreground-rgb: 15, 23, 42;
+  --background-rgb: 248, 250, 252;
+}
+
+body {
+  color: rgb(var(--foreground-rgb));
+  background: rgb(var(--background-rgb));
+  font-family: "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+.app-tema {
+  /* escuro */
+  --bg: #07090a;
+  --sidebar: #0b0f11;
+  --card: #10171a;
+  --card-2: #141c20;
+  --input: #151d21;
+  --hover: #18222600;
+  --hover-solid: #172024;
+  --line: #1c2629;
+  --line-2: #263236;
+  --text: #f4f6f6;
+  --text-2: #c9d3d3;
+  --text-3: #8d9a9b;
+  --text-4: #5e6a6b;
+  --accent: #5cb98d;
+  --accent-strong: #3f8a66;
+  --accent-soft: #0f1c17;
+  --accent-text: #8fd3b1;
+  --chip: #dfe7e6;
+  --chip-text: #0b0f11;
+  --danger: #d08070;
+  --warn: #d2b277;
+  --info: #84b3c6;
+  --shadow: 0 0 0 1px var(--line);
+  color-scheme: dark;
+  background: var(--bg);
+  color: var(--text-2);
+}
+
+.app-tema.app-claro {
+  --bg: #f3f5f5;
+  --sidebar: #eceff0;
+  --card: #ffffff;
+  --card-2: #f7f9f9;
+  --input: #f3f5f5;
+  --hover-solid: #eef2f2;
+  --line: #e3e8e8;
+  --line-2: #d3dada;
+  --text: #0e1416;
+  --text-2: #2c3739;
+  --text-3: #5f6b6d;
+  --text-4: #8a9597;
+  --accent: #2f8460;
+  --accent-strong: #2f7a58;
+  --accent-soft: #e6f3ed;
+  --accent-text: #23694b;
+  --chip: #0e1416;
+  --chip-text: #ffffff;
+  --danger: #b4503f;
+  --warn: #9a6b17;
+  --info: #2f6f88;
+  color-scheme: light;
+}
+
+/* --- Superfícies --- */
+.app-tema .bg-white,
+.app-tema .bg-slate-50,
+.app-tema .bg-slate-50\/60,
+.app-tema .bg-slate-50\/40 { background-color: var(--card); }
+.app-tema .bg-slate-100 { background-color: var(--card-2); }
+.app-tema .bg-slate-900\/40 { background-color: var(--card-2); }
+.app-tema .shadow-sm,
+.app-tema .shadow-md,
+.app-tema .shadow-lg,
+.app-tema .shadow-xl { box-shadow: none; }
+
+/* Cartões dentro de cartões ganham um degrau de contraste */
+.app-tema .bg-white .bg-slate-50,
+.app-tema .bg-white .bg-slate-50\/60 { background-color: var(--card-2); }
+
+/* --- Texto --- */
+.app-tema .text-slate-900,
+.app-tema .text-slate-800 { color: var(--text); }
+.app-tema .text-slate-700 { color: var(--text-2); }
+.app-tema .text-slate-600,
+.app-tema .text-slate-500 { color: var(--text-3); }
+.app-tema .text-slate-400,
+.app-tema .text-slate-300 { color: var(--text-4); }
+
+/* --- Bordas --- */
+.app-tema .border-slate-100,
+.app-tema .border-slate-200 { border-color: var(--line); }
+.app-tema .border-slate-300,
+.app-tema .border-slate-400 { border-color: var(--line-2); }
+.app-tema .divide-slate-100 > :not([hidden]) ~ :not([hidden]),
+.app-tema .divide-slate-200 > :not([hidden]) ~ :not([hidden]) { border-color: var(--line); }
+
+/* --- Interação --- */
+.app-tema .hover\:bg-slate-50:hover,
+.app-tema .hover\:bg-slate-100:hover,
+.app-tema .hover\:bg-amber-50\/40:hover { background-color: var(--hover-solid); }
+.app-tema .hover\:text-slate-600:hover,
+.app-tema .hover\:text-slate-700:hover,
+.app-tema .hover\:text-slate-900:hover { color: var(--text); }
+.app-tema .hover\:border-slate-400:hover { border-color: var(--text-4); }
+
+/* --- Ação primária e item ativo: verde de destaque --- */
+.app-tema .bg-slate-900,
+.app-tema .bg-amber-600 { background-color: var(--accent-strong); color: #fff; }
+.app-tema .hover\:bg-slate-800:hover,
+.app-tema .hover\:bg-amber-700:hover { background-color: var(--accent); }
+.app-tema .border-slate-900 { border-color: var(--accent-strong); }
+.app-tema .accent-slate-900,
+.app-tema .accent-amber-600 { accent-color: var(--accent-strong); }
+.app-tema .text-amber-600,
+.app-tema .text-amber-700,
+.app-tema .text-amber-800 { color: var(--accent-text); }
+.app-tema .bg-amber-50\/60,
+.app-tema .bg-amber-100 { background-color: var(--accent-soft); }
+.app-tema .border-amber-200 { border-color: color-mix(in srgb, var(--accent) 35%, transparent); }
+.app-tema .shadow-amber-600\/20 { box-shadow: none; }
+
+/* --- Campos --- */
+.app-tema input:not([type="checkbox"]):not([type="radio"]),
+.app-tema select,
+.app-tema textarea {
+  background-color: var(--input);
+  color: var(--text);
+  border-color: var(--line-2);
+}
+.app-tema input::placeholder,
+.app-tema textarea::placeholder { color: var(--text-4); }
+.app-tema input:focus,
+.app-tema select:focus,
+.app-tema textarea:focus { border-color: var(--accent) !important; outline: none; }
+.app-tema input:disabled { opacity: 0.55; }
+
+/* --- Estados (fundos suaves translúcidos) --- */
+.app-tema .bg-rose-50 { background-color: color-mix(in srgb, var(--danger) 12%, transparent); }
+.app-tema .border-rose-200,
+.app-tema .border-rose-300 { border-color: color-mix(in srgb, var(--danger) 35%, transparent); }
+.app-tema .text-rose-700,
+.app-tema .text-rose-600,
+.app-tema .text-rose-500 { color: var(--danger); }
+.app-tema .bg-emerald-50 { background-color: var(--accent-soft); }
+.app-tema .border-emerald-200 { border-color: color-mix(in srgb, var(--accent) 35%, transparent); }
+.app-tema .text-emerald-700,
+.app-tema .text-emerald-600 { color: var(--accent-text); }
+.app-tema .bg-amber-50 { background-color: color-mix(in srgb, var(--warn) 12%, transparent); }
+.app-tema .border-amber-300 { border-color: color-mix(in srgb, var(--warn) 45%, transparent); }
+.app-tema .bg-sky-50 { background-color: color-mix(in srgb, var(--info) 12%, transparent); }
+.app-tema .border-sky-200 { border-color: color-mix(in srgb, var(--info) 35%, transparent); }
+.app-tema .text-sky-700 { color: var(--info); }
+.app-tema .bg-violet-50 { background-color: color-mix(in srgb, #a78bce 12%, transparent); }
+.app-tema .text-violet-700 { color: #b9a3dc; }
+.app-tema .border-violet-200 { border-color: color-mix(in srgb, #a78bce 35%, transparent); }
+
+/* Modais: fundo escuro com desfoque */
+.app-tema .bg-black\/40,
+.app-tema .bg-black\/60 { background-color: rgba(0, 0, 0, 0.6); backdrop-filter: blur(4px); }
+
+/* Rolagem discreta */
+.app-tema ::-webkit-scrollbar { width: 10px; height: 10px; }
+.app-tema ::-webkit-scrollbar-thumb { background: var(--line-2); border-radius: 999px; border: 3px solid var(--bg); }
+.app-tema ::-webkit-scrollbar-track { background: transparent; }
+
+/* Painel de conversa: fundo e balões de saída seguem o tema */
+.app-tema .bg-\[\#efeae2\] { background-color: var(--bg); }
+.app-tema .bg-\[\#d9fdd3\] { background-color: var(--accent-soft); color: var(--text); }
+
+/* Editor de etiquetas: o campo interno não tem caixa própria */
+.app-tema .focus-within\:border-slate-900 input {
+  background-color: transparent !important;
+  border: none !important;
+}
+.app-tema .focus-within\:border-slate-900:focus-within { border-color: var(--accent); }

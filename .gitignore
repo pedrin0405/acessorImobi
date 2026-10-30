@@ -1,0 +1,29 @@
+# Segredos e configuração local
+.env
+.env.*
+!.env.example
+
+# Override específico deste Mac (CPU + portas locais); não versionar
+docker-compose.override.yml
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+
+# Node / Next.js
+node_modules/
+.next/
+out/
+
+# Sistema
+.DS_Store
+
+# Capturas do Kleo sem máscara (dados reais): nunca versionar
+re-kleo-capturas-originais/
+
+# Configuração local do Claude Code e evidências de engenharia reversa (repositório próprio)
+.claude/
+re-kleo/

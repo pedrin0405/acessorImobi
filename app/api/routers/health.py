@@ -2,6 +2,8 @@
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 import redis.asyncio as aioredis
+from sqlalchemy import text
+
 from app.shared.config import get_settings
 from app.shared.database import engine
 
@@ -16,7 +18,7 @@ async def health():
     # PostgreSQL
     try:
         async with engine.connect() as conn:
-            await conn.execute("SELECT 1")
+            await conn.execute(text("SELECT 1"))
         checks["services"]["postgres"] = "ok"
     except Exception as e:
         checks["services"]["postgres"] = f"error: {e}"

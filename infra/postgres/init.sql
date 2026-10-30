@@ -8,8 +8,9 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 CREATE EXTENSION IF NOT EXISTS "vector";
 
--- Banco separado para o Evolution API
-CREATE DATABASE evolution;
+-- Banco separado para o Evolution API (idempotente)
+SELECT 'CREATE DATABASE evolution'
+WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'evolution')\gexec
 
 -- =============================================================================
 -- Schema principal
@@ -34,7 +35,7 @@ CREATE TABLE IF NOT EXISTS tenants (
     -- Credenciais Imoview cifradas com ENCRYPTION_KEY
     imoview_creds   BYTEA,
     -- Modelo Ollama selecionado para este tenant
-    ollama_model    VARCHAR(100) NOT NULL DEFAULT 'llama3.1:8b-instruct-q4_K_M',
+    ollama_model    VARCHAR(100) NOT NULL DEFAULT 'qwen3:8b',
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -186,6 +187,24 @@ CREATE OR REPLACE RULE auditoria_no_update AS ON UPDATE TO auditoria DO INSTEAD 
 CREATE OR REPLACE RULE auditoria_no_delete AS ON DELETE TO auditoria DO INSTEAD NOTHING;
 
 -- -----------------------------------------------------------------------------
+-- CONSUMO DE APIS EXTERNAS — métricas diárias por modelo (painel do dev)
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS api_usage (
+    dia             DATE NOT NULL,
+    provider        VARCHAR(30) NOT NULL,
+    operation       VARCHAR(30) NOT NULL,
+    model           VARCHAR(120) NOT NULL,
+    requests        INTEGER NOT NULL DEFAULT 0,
+    errors          INTEGER NOT NULL DEFAULT 0,
+    input_tokens    BIGINT NOT NULL DEFAULT 0,
+    output_tokens   BIGINT NOT NULL DEFAULT 0,
+    characters      BIGINT NOT NULL DEFAULT 0,
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (dia, provider, operation, model)
+);
+CREATE INDEX IF NOT EXISTS idx_api_usage_dia ON api_usage (dia DESC);
+
+-- -----------------------------------------------------------------------------
 -- ESTADOS DE ONBOARDING — controla fluxo de cadastro do corretor
 -- -----------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS onboarding_states (
@@ -234,7 +253,7 @@ DECLARE
 BEGIN
     FOREACH tbl IN ARRAY ARRAY[
         'corretores','mensagens','pendencias_crm','imoveis_cache',
-        'auditoria','confirmacoes_pendentes','onboarding_states',
+        'auditoria','confirmacoes_pendentes',
         'whatsapp_sessions','tenant_admins'
     ] LOOP
         EXECUTE format(
@@ -245,6 +264,15 @@ BEGIN
     END LOOP;
 END;
 $$;
+
+-- onboarding_states não possui tenant_id: isola pelo corretor do tenant
+CREATE POLICY tenant_isolation ON onboarding_states
+USING (
+    corretor_id IN (
+        SELECT id FROM corretores
+        WHERE tenant_id = current_setting('app.tenant_id', true)::uuid
+    )
+);
 
 -- Super-user da aplicação bypassa RLS apenas via SET LOCAL (nunca globalmente)
 -- O papel 'acessor' usa RLS por padrão
@@ -263,7 +291,7 @@ DECLARE tbl TEXT;
 BEGIN
     FOREACH tbl IN ARRAY ARRAY[
         'tenants','corretores','imoveis_cache','pendencias_crm',
-        'whatsapp_sessions','confirmacoes_pendentes'
+        'whatsapp_sessions'
     ] LOOP
         EXECUTE format(
             'CREATE TRIGGER trg_updated_at BEFORE UPDATE ON %I

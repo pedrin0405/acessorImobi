@@ -3,6 +3,8 @@ Configuração central da aplicação via pydantic-settings.
 Lê variáveis de ambiente definidas no .env ou injetadas pelo Docker.
 """
 from functools import lru_cache
+from typing import Optional
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -26,9 +28,50 @@ class Settings(BaseSettings):
     minio_bucket_audios: str = "audios"
     minio_secure: bool = False
 
+    # LLM: "gemini" (nuvem, principal) ou "ollama" (local)
+    llm_provider: str = "ollama"
+
     # Ollama
     ollama_base_url: str = "http://ollama:11434"
-    ollama_default_model: str = "llama3.1:8b-instruct-q4_K_M"
+    ollama_default_model: str = "qwen3:8b"
+    ollama_timeout_seconds: int = 240
+
+    # Gemini (chat + TTS)
+    gemini_api_key: Optional[str] = None
+    gemini_model: str = "gemini-flash-lite-latest"
+    gemini_base_url: str = "https://generativelanguage.googleapis.com/v1beta"
+    gemini_timeout_seconds: int = 60
+    gemini_tts_model: str = "gemini-3.8-flash-tts"
+    gemini_tts_fallback_model: Optional[str] = "gemini-3.8-flash-lite-tts"
+    gemini_tts_voice: str = "Kore"
+    gemini_tts_max_chars: int = 1800
+    # Resposta em áudio: mirror (só quando o corretor manda áudio), always ou never
+    voice_reply_mode: str = "mirror"
+    # Em modo mirror, chance de responder em áudio também a mensagens de texto (0 a 1)
+    voice_reply_audio_chance: float = 0.2
+
+    # TTS: "auto" (Qwen3 local e, se falhar, Gemini), "qwen3" ou "gemini"
+    tts_provider: str = "auto"
+    # Servidor local do Qwen3-TTS (scripts/qwen3_tts_server.py) rodando no host.
+    qwen3_tts_url: str = "http://host.docker.internal:8010"
+    qwen3_tts_speaker: str = "Serena"
+    qwen3_tts_language: str = "Portuguese"
+    # Instrução de estilo (ritmo, emoção) enviada ao modelo.
+    qwen3_tts_instruct: Optional[str] = None  # None = padrão de vozes.py; "" = sem instrução
+    qwen3_tts_timeout_seconds: int = 300
+    qwen3_tts_token: Optional[str] = None
+    # Falas curtas: o modelo local gera ~5x mais devagar que o tempo real no M4.
+    qwen3_tts_max_chars: int = 500
+
+    # Consumo de APIs externas (painel do dev). 0 = sem limite configurado.
+    # Use os valores do seu plano em https://aistudio.google.com/rate-limit
+    gemini_chat_daily_limit: int = 200
+    gemini_tts_daily_limit: int = 10
+    gemini_chat_rpm_limit: int = 15
+    gemini_tts_rpm_limit: int = 3
+    # Percentual a partir do qual o painel sinaliza "perto do limite".
+    usage_alert_percent: int = 80
+    usage_timezone: str = "America/Sao_Paulo"
 
     # Whisper
     whisper_base_url: str = "http://whisper:9000"
@@ -43,10 +86,14 @@ class Settings(BaseSettings):
     secret_key: str                 # JWT signing
     encryption_key: str             # AES-256 para credenciais Imoview
     access_token_expire_minutes: int = 60 * 8  # 8 horas
+    dev_panel_password: str = "admin123"      # Senha de acesso ao painel do desenvolvedor
 
     # Worker
     worker_concurrency: int = 8
     worker_max_per_tenant: int = 3
+    # Assistente pessoal: minutos sem mensagem nova antes de analisar o atendimento
+    assistente_analise_atraso_min: int = 5
+
     # Contexto da conversa
     context_window_messages: int = 12
     context_window_tokens: int = 2500

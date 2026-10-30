@@ -1,5 +1,3 @@
-version: "3.9"
-
 # =============================================================================
 # acessorImobi — Docker Compose
 # Monólito modular com processos separados por responsabilidade
@@ -18,6 +16,7 @@ x-api-env: &api-env
   EVOLUTION_API_KEY: ${EVOLUTION_API_KEY}
   SECRET_KEY: ${SECRET_KEY}
   ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+  DEV_PANEL_PASSWORD: ${DEV_PANEL_PASSWORD:-admin123}
   ENVIRONMENT: ${ENVIRONMENT:-production}
   LOG_LEVEL: ${LOG_LEVEL:-info}
   BASE_DOMAIN: ${BASE_DOMAIN}
@@ -27,6 +26,8 @@ services:
     image: traefik:v3.1
     container_name: acessorimobi_traefik
     restart: unless-stopped
+    environment:
+      ACME_EMAIL: ${ACME_EMAIL:-devops@acessorimobi.com.br}
     ports:
       - "80:80"
       - "443:443"
@@ -43,6 +44,8 @@ services:
     build:
       context: .
       dockerfile: infra/docker/Dockerfile.web
+      args:
+        NEXT_PUBLIC_API_URL: https://api.${BASE_DOMAIN}
     container_name: acessorimobi_web
     restart: unless-stopped
     environment:
@@ -74,6 +77,8 @@ services:
       dockerfile: infra/docker/Dockerfile.api
     container_name: acessorimobi_api
     restart: unless-stopped
+    env_file:
+      - .env
     environment:
       <<: *api-env
       WORKER_COUNT: 4
@@ -97,6 +102,8 @@ services:
       dockerfile: infra/docker/Dockerfile.api
     container_name: acessorimobi_worker
     restart: unless-stopped
+    env_file:
+      - .env
     command: python -m app.worker.main
     environment:
       <<: *api-env
@@ -116,6 +123,8 @@ services:
       dockerfile: infra/docker/Dockerfile.api
     container_name: acessorimobi_scheduler
     restart: unless-stopped
+    env_file:
+      - .env
     command: python -m app.scheduler.main
     environment:
       <<: *api-env
@@ -162,7 +171,7 @@ services:
       - internal
 
   evolution:
-    image: atendai/evolution-api:v2.2.3
+    image: evoapicloud/evolution-api:v2.3.7
     container_name: acessorimobi_evolution
     restart: unless-stopped
     environment:
@@ -178,7 +187,8 @@ services:
       RABBITMQ_ENABLED: "false"
       WEBHOOK_GLOBAL_ENABLED: "false"
       CONFIG_SESSION_PHONE_CLIENT: AcessorImobi
-      LOG_LEVEL: ERROR
+      # ERROR em operação normal; use INFO/DEBUG para diagnosticar webhooks.
+      LOG_LEVEL: ${EVOLUTION_LOG_LEVEL:-ERROR}
     volumes:
       - evolution_instances:/evolution/instances
     depends_on:
@@ -221,14 +231,16 @@ services:
     restart: unless-stopped
     environment:
       ASR_MODEL: ${WHISPER_MODEL:-medium}
-      ASR_ENGINE: openai_whisper
+      ASR_ENGINE: ${WHISPER_ENGINE:-faster_whisper}
+      ASR_QUANTIZATION: ${WHISPER_QUANTIZATION:-int8}
+      MODEL_IDLE_TIMEOUT: ${WHISPER_IDLE_TIMEOUT:-600}
     volumes:
       - whisper_models:/root/.cache/whisper
     networks:
       - internal
 
   minio:
-    image: minio/minio:latest
+    image: cgr.dev/chainguard/minio:latest
     container_name: acessorimobi_minio
     restart: unless-stopped
     command: server /data --console-address ":9001"

@@ -25,6 +25,7 @@ arq==0.26.1
 # Segurança e criptografia
 python-jose[cryptography]==3.3.0
 passlib[bcrypt]==1.7.4
+bcrypt==4.0.1
 cryptography==43.0.3
 
 # MinIO (objeto storage)
@@ -47,6 +48,6 @@ pytz==2024.2
 # Desenvolvimento e testes
 pytest==8.3.4
 pytest-asyncio==0.24.0
-pytest-httpx==0.34.0
+pytest-httpx==0.35.0
 factory-boy==3.3.1
 Faker==33.1.0
