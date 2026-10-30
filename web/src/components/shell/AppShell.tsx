@@ -3,6 +3,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { LogOut, Menu, Moon, PanelLeft, Search, Sun } from "lucide-react";
 import LogoAcessor from "@/components/shell/LogoAcessor";
+import LogoAcessorHorizontal from "@/components/shell/LogoAcessorHorizontal";
 
 export interface NavItem {
   id: string;
@@ -133,13 +134,14 @@ export default function AppShell({ marca, subtitulo, grupos, rodape = [], ativo,
 
   const Lateral = ({ compacto }: { compacto: boolean }) => (
     <div className="flex flex-col h-full">
-      <div className={`flex items-center gap-3 h-16 ${compacto ? "justify-center" : "px-4"}`}>
-        <LogoAcessor className="w-9 h-9" />
-        {!compacto && (
-          <div className="min-w-0">
-            <p className="text-sm font-semibold truncate" style={{ color: "var(--text)" }}>{marca}</p>
-            <p className="text-[11px] truncate" style={{ color: "var(--text-4)" }}>{subtitulo}</p>
-          </div>
+      <div className={`flex flex-col justify-center ${compacto ? "items-center h-16" : "h-[88px] px-4"}`}>
+        {compacto ? (
+          <LogoAcessor className="w-9 h-9" alt={marca} />
+        ) : (
+          <>
+            <LogoAcessorHorizontal tema={tema} alt={`${marca} Imobi`} className="w-[164px] h-auto" />
+            <p className="mt-0.5 text-[11px] truncate" style={{ color: "var(--text-4)" }}>{subtitulo}</p>
+          </>
         )}
       </div>
       <nav className={`flex-1 overflow-y-auto py-2 space-y-5 ${compacto ? "px-2" : "px-3"}`} aria-label="Menu principal">
