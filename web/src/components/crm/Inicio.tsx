@@ -4,7 +4,7 @@ import React, { useEffect, useState } from "react";
 import { CalendarClock, ChevronRight, Hourglass, MessageCircle, TriangleAlert } from "lucide-react";
 import { fetchApi } from "@/lib/api";
 import { Atividade, Negocio, brl } from "@/lib/crm";
-import { MarcaAcessor } from "@/components/shell/AppShell";
+import AssistenteInicio from "@/components/crm/assistente/AssistenteInicio";
 
 interface ConversaResumo {
   corretor_id: string;
@@ -100,25 +100,24 @@ export default function Inicio({
 
   const primeiro = nome.split(" ")[0];
 
-  return (
-    <div className="max-w-2xl mx-auto pt-6 lg:pt-12 space-y-10">
-      <div className="text-center space-y-3">
-        <span className="inline-flex w-12 h-12 rounded-2xl items-center justify-center" style={{ background: "var(--accent-soft)", color: "var(--accent)" }}>
-          <MarcaAcessor className="w-6 h-6" />
-        </span>
-        <h1 className="text-3xl lg:text-[40px] font-semibold tracking-tight" style={{ color: "var(--text)" }}>
-          {saudacao()}, {primeiro}
-        </h1>
-        <p className="text-sm" style={{ color: "var(--text-3)" }}>
-          <strong style={{ color: "var(--text)" }}>{resumo.hoje}</strong> compromissos hoje ·{" "}
-          <strong style={{ color: "var(--text)" }}>{brl(resumo.previsao)}</strong> previstos no funil
-        </p>
-      </div>
+  const resumoTexto = (
+    <>
+      {resumo.semResposta > 0 ? (
+        <>
+          <strong style={{ color: "var(--text)" }}>{resumo.semResposta}</strong> sem resposta ·{" "}
+        </>
+      ) : null}
+      <strong style={{ color: "var(--text)" }}>{resumo.hoje}</strong> compromissos hoje ·{" "}
+      <strong style={{ color: "var(--text)" }}>{brl(resumo.previsao)}</strong> previstos no funil
+    </>
+  );
 
+  return (
+    <AssistenteInicio saudacao={`${saudacao()}, ${primeiro}`} resumo={resumoTexto} onAuthError={onAuthError}>
       <section className="space-y-3">
         <div className="flex items-center justify-between px-1">
           <h2 className="text-sm" style={{ color: "var(--text-3)" }}>Para hoje</h2>
-          <button onClick={() => onIr("visao")} className="text-sm" style={{ color: "var(--text-3)" }}>
+          <button onClick={() => onIr("visao")} className="text-sm hover:underline" style={{ color: "var(--text-3)" }}>
             Visão geral
           </button>
         </div>
@@ -136,7 +135,7 @@ export default function Inicio({
                 <button
                   key={p.id + i}
                   onClick={() => onIr(p.destino)}
-                  className="w-full flex items-center gap-4 px-5 py-4 text-left hover:bg-slate-100"
+                  className="w-full flex items-center gap-4 px-5 py-4 text-left hover:bg-[var(--hover-solid)] transition-colors"
                   style={{ borderTop: i ? "1px solid var(--line)" : undefined }}
                 >
                   <Icone className="w-[18px] h-[18px] shrink-0" style={{ color: p.tom === "alerta" ? "var(--warn)" : "var(--text-3)" }} />
@@ -151,6 +150,6 @@ export default function Inicio({
           )}
         </div>
       </section>
-    </div>
+    </AssistenteInicio>
   );
 }

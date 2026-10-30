@@ -58,13 +58,17 @@ def _montar_contents(messages: List[Dict[str, str]]) -> List[Dict[str, Any]]:
         if msg.get("role") == "system":
             continue
         texto = (msg.get("content") or "").strip()
-        if not texto:
+        # Anexos (imagem/PDF em base64) viajam como inlineData junto do texto.
+        anexos = msg.get("anexos") or []
+        if not texto and not anexos:
             continue
+        partes: List[Dict[str, Any]] = [{"text": texto}] if texto else []
+        partes += [{"inlineData": {"mimeType": a["mime"], "data": a["dados"]}} for a in anexos]
         papel = "model" if msg.get("role") == "assistant" else "user"
         if contents and contents[-1]["role"] == papel:
-            contents[-1]["parts"].append({"text": texto})
+            contents[-1]["parts"].extend(partes)
         else:
-            contents.append({"role": papel, "parts": [{"text": texto}]})
+            contents.append({"role": papel, "parts": partes})
 
     # O Gemini exige que a conversa comece com o usuário.
     if not contents or contents[0]["role"] != "user":
@@ -257,6 +261,8 @@ class GeminiClient:
         system_prompt: str,
         messages: List[Dict[str, str]],
         tools: Optional[List[Dict[str, Any]]] = None,
+        temperature: float = 0.85,
+        max_tokens: int = 800,
     ) -> Dict[str, Any]:
         """
         Chama o Gemini e devolve {"text": str|None, "function_call": dict|None}.
@@ -267,8 +273,8 @@ class GeminiClient:
             "generationConfig": {
                 # 0.6 deixava as respostas repetitivas; os argumentos das
                 # ferramentas continuam estáveis nessa faixa.
-                "temperature": 0.85,
-                "maxOutputTokens": 800,
+                "temperature": temperature,
+                "maxOutputTokens": max_tokens,
             },
         }
         tools_gemini = _converter_tools(tools)
@@ -339,6 +345,8 @@ class GeminiClient:
         resultado: str,
         instrucao: Optional[str] = None,
         function_call_part: Optional[Dict[str, Any]] = None,
+        temperature: float = 0.75,
+        max_tokens: int = 500,
     ) -> Optional[str]:
         """
         Segunda passada do Gemini: recebe o resultado bruto da ferramenta e
@@ -381,8 +389,8 @@ class GeminiClient:
             "systemInstruction": {"parts": [{"text": texto_sistema}]},
             "contents": contents,
             "generationConfig": {
-                "temperature": 0.75,
-                "maxOutputTokens": 500,
+                "temperature": temperature,
+                "maxOutputTokens": max_tokens,
             },
         }
         data = await self._post(self.model, payload)

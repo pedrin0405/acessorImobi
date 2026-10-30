@@ -181,3 +181,36 @@ def test_pedido_de_crm_nao_vira_busca_de_imoveis():
     resposta = agente._fallback_deterministico(pedidos[0])
     assert resposta.fallback and "Nada foi gravado" in resposta.texto
     assert not resposta.imoveis and not resposta.proposta_escrita
+
+
+def test_assistente_anexos_e_titulo():
+    import base64
+
+    import pytest
+
+    from app.domain.assistente.service import AssistenteErro, preparar_anexos, titulo_da_conversa
+
+    b64 = lambda b: base64.b64encode(b).decode()
+
+    inline, texto, meta = preparar_anexos([
+        {"nome": "foto.png", "mime": "image/png", "dados": b64(b"\x89PNG")},
+        {"nome": "nota.txt", "mime": "text/plain", "dados": b64("João quer casa".encode())},
+    ])
+    assert [a["mime"] for a in inline] == ["image/png"]
+    assert "João quer casa" in texto and "nota.txt" in texto
+    assert [m["nome"] for m in meta] == ["foto.png", "nota.txt"] and "dados" not in meta[0]
+
+    ruins = [
+        [{"nome": "a.exe", "mime": "application/x-msdownload", "dados": b64(b"x")}],
+        [{"nome": "a.png", "mime": "image/png", "dados": "isso não é base64!"}],
+        [{"nome": "a.png", "mime": "image/png", "dados": b64(b"x" * (4 * 1024 * 1024 + 1))}],
+        [{"nome": f"{i}.txt", "mime": "text/plain", "dados": b64(b"x")} for i in range(4)],
+    ]
+    for anexos in ruins:
+        with pytest.raises(AssistenteErro):
+            preparar_anexos(anexos)
+
+    assert titulo_da_conversa("  Gere   o briefing do dia ") == "Gere o briefing do dia"
+    assert titulo_da_conversa("") == "Nova conversa"
+    longo = titulo_da_conversa("palavra " * 30)
+    assert len(longo) <= 61 and longo.endswith("…")
