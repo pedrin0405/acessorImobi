@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { BedDouble, Car, Check, CheckCheck, Home, Loader2, Mic, Pause, Play, Ruler, X } from "lucide-react";
+import { BedDouble, Car, Check, CheckCheck, Home, Loader2, Lock, Mic, Pause, Play, Ruler, Workflow, X } from "lucide-react";
 import { fetchApi } from "@/lib/api";
 
 export interface MensagemChat {
@@ -12,6 +12,11 @@ export interface MensagemChat {
   status: string;
   created_at: string | null;
   midia?: string | null;
+  /** 'bot' (agente), 'humano' (equipe pelo portal) ou 'nota' (nota interna); vazio = corretor. */
+  origem?: string | null;
+  autor?: string | null;
+  /** Como a IA respondeu; vem só na primeira mensagem de cada resposta do agente. */
+  processo?: { rota: string; modelo?: string | null; total_ms?: number | null; passos: Record<string, unknown>[] } | null;
 }
 
 type Item =
@@ -337,10 +342,22 @@ function Visualizador({ src, onFechar }: { src: string; onFechar: () => void }) 
   );
 }
 
+/* ---------- atalho para o processo da IA ---------- */
+function LinkProcesso({ onClick }: { onClick: () => void }) {
+  return (
+    <button type="button" onClick={onClick} className="inline-flex items-center gap-1 rounded-md px-1 py-0.5 hover:bg-[var(--hover-solid)] hover:text-[var(--accent-text)] transition-colors">
+      <Workflow className="w-3 h-3" aria-hidden /> Como a IA respondeu
+    </button>
+  );
+}
+
 /* ---------- balão ---------- */
-function Balao({ item, onAbrir }: { item: Extract<Item, { tipo: "msg" }>; onAbrir: (src: string) => void }) {
+function Balao({ item, onAbrir, onProcesso }: { item: Extract<Item, { tipo: "msg" }>; onAbrir: (src: string) => void; onProcesso?: (id: string) => void }) {
   const { m, primeira, ultima } = item;
+  if (m.origem === "nota") return <NotaInterna m={m} />;
   const saida = m.direcao === "outbound";
+  const humano = m.origem === "humano";
+  const autor = (m.autor || "").split("@")[0] || "equipe";
   const eAudio = m.tipo === "audio";
   const texto = m.conteudo || (eAudio ? "" : m.tipo === "image" ? "Foto" : m.tipo === "document" ? "Documento" : "(mensagem sem texto)");
   const arredonda = saida
@@ -351,13 +368,14 @@ function Balao({ item, onAbrir }: { item: Extract<Item, { tipo: "msg" }>; onAbri
     <div className={`flex ${saida ? "justify-end" : "justify-start"} ${primeira ? "mt-3" : "mt-0.5"}`}>
       <div
         className={`relative max-w-[min(78%,34rem)] px-3 py-2 text-sm leading-relaxed text-[var(--text)] border ${arredonda} ${
-          saida ? "bg-[var(--accent-soft)] border-[var(--line-2)]" : "bg-[var(--card)] border-[var(--line)]"
+          humano ? "border-[var(--line-2)]" : saida ? "bg-[var(--accent-soft)] border-[var(--line-2)]" : "bg-[var(--card)] border-[var(--line)]"
         }`}
+        style={humano ? { background: "color-mix(in srgb, var(--info) 11%, var(--card))" } : undefined}
       >
         {primeira && (
-          <div className={`flex items-center gap-1.5 text-[11px] font-semibold mb-1 ${saida ? "text-[var(--accent-text)]" : "text-[var(--info)]"}`}>
+          <div className={`flex items-center gap-1.5 text-[11px] font-semibold mb-1 ${humano ? "text-[var(--info)]" : saida ? "text-[var(--accent-text)]" : "text-[var(--text-3)]"}`}>
             {eAudio && <Mic className="w-3 h-3" aria-hidden />}
-            {saida ? "Acessor" : "Corretor"}
+            {humano ? `Equipe · ${autor}` : saida ? "Acessor" : "Corretor"}
           </div>
         )}
         {eAudio ? (
@@ -372,7 +390,8 @@ function Balao({ item, onAbrir }: { item: Extract<Item, { tipo: "msg" }>; onAbri
           </button>
         )}
         {ultima && (
-          <div className="flex items-center justify-end gap-1 mt-1 text-[10px] text-[var(--text-4)]">
+          <div className="flex items-center justify-end gap-3 mt-1 text-[10px] text-[var(--text-4)]">
+            {m.processo && onProcesso && <LinkProcesso onClick={() => onProcesso(m.id)} />}
             <span>{hora(m.created_at)}</span>
             {saida && (m.status === "sent" ? <CheckCheck className="w-3.5 h-3.5 text-[var(--accent)]" aria-label="Enviada" /> : <Check className="w-3.5 h-3.5" aria-label="Na fila" />)}
           </div>
@@ -382,48 +401,80 @@ function Balao({ item, onAbrir }: { item: Extract<Item, { tipo: "msg" }>; onAbri
   );
 }
 
+/* ---------- nota interna (só para a equipe) ---------- */
+function NotaInterna({ m }: { m: MensagemChat }) {
+  const autor = (m.autor || "").split("@")[0] || "equipe";
+  return (
+    <div className="flex justify-end mt-3">
+      <div className="max-w-[min(78%,34rem)] rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed" style={{ background: "color-mix(in srgb, var(--warn) 9%, var(--card))", border: "1px dashed color-mix(in srgb, var(--warn) 45%, transparent)", color: "var(--text)" }}>
+        <p className="flex items-center gap-1.5 text-[11px] font-semibold mb-1" style={{ color: "var(--warn)" }}>
+          <Lock className="w-3 h-3" aria-hidden /> Nota interna · {autor}
+        </p>
+        <p className="whitespace-pre-wrap break-words">{m.conteudo}</p>
+        <p className="mt-1 text-right text-[10px]" style={{ color: "var(--text-4)" }}>{hora(m.created_at)} · só a equipe vê</p>
+      </div>
+    </div>
+  );
+}
+
 /* ---------- conversa ---------- */
-export default function ChatMensagens({ mensagens }: { mensagens: MensagemChat[] }) {
+export default function ChatMensagens({ mensagens, onProcesso }: { mensagens: MensagemChat[]; onProcesso?: (id: string) => void }) {
   const itens = useMemo(() => montarItens(mensagens), [mensagens]);
+  // Cada dia é uma seção própria: o chip de data fica preso só dentro do seu dia.
+  const secoes = useMemo(() => {
+    const out: { chave: string; rotulo: string | null; itens: Exclude<Item, { tipo: "dia" }>[] }[] = [];
+    for (const it of itens) {
+      if (it.tipo === "dia") out.push({ chave: it.chave, rotulo: it.rotulo, itens: [] });
+      else {
+        if (!out.length) out.push({ chave: "inicio", rotulo: null, itens: [] });
+        out[out.length - 1].itens.push(it);
+      }
+    }
+    return out;
+  }, [itens]);
   const [ampliada, setAmpliada] = useState<string | null>(null);
 
   return (
     <div className="px-3 sm:px-6 pb-4">
-      {itens.map((it) => {
-        if (it.tipo === "dia") {
-          return (
-            <div key={it.chave} className="sticky top-2 z-10 flex justify-center my-4">
+      {secoes.map((sec) => (
+        <section key={sec.chave} aria-label={sec.rotulo || undefined}>
+          {sec.rotulo && (
+            <div className="sticky top-2 z-10 flex justify-center my-4">
               <span className="px-3 py-1 rounded-full text-[11px] font-medium bg-[var(--card)] border border-[var(--line)] text-[var(--text-3)] shadow-sm">
-                {it.rotulo}
+                {sec.rotulo}
               </span>
             </div>
-          );
-        }
+          )}
+          {sec.itens.map((it) => {
         if (it.tipo === "imoveis") {
           const ultima = it.itens[it.itens.length - 1];
+          const comProcesso = it.itens.find((m) => m.processo);
           return (
             <div key={it.chave} className="flex justify-end mt-3">
-              <div className="w-full max-w-[min(92%,44rem)] rounded-2xl border border-[var(--line-2)] bg-[var(--accent-soft)] p-3">
-                <div className="flex items-center justify-between mb-2.5">
-                  <span className="text-[11px] font-semibold text-[var(--accent-text)]">
-                    Acessor · {it.itens.length} {it.itens.length === 1 ? "imóvel" : "imóveis"}
-                  </span>
-                </div>
-                <div className={`grid gap-2.5 ${it.itens.length === 1 ? "grid-cols-1 max-w-xs" : "grid-cols-2 lg:grid-cols-3"}`}>
+              <div className="w-full max-w-[min(94%,46rem)]">
+                <p className="px-1 pb-2 text-[11px] font-semibold" style={{ color: "var(--accent-text)" }}>
+                  Acessor · {it.itens.length} {it.itens.length === 1 ? "imóvel" : "imóveis"}
+                </p>
+                <div className={`grid gap-3 ${it.itens.length === 1 ? "grid-cols-1 max-w-[16rem]" : "grid-cols-2 xl:grid-cols-3"}`}>
                   {it.itens.map((m) => (
                     <CartaoImovel key={m.id} m={m} onAbrir={setAmpliada} />
                   ))}
                 </div>
-                <div className="flex items-center justify-end gap-1 mt-2 text-[10px] text-[var(--text-4)]">
-                  <span>{hora(ultima.created_at)}</span>
-                  <CheckCheck className="w-3.5 h-3.5 text-[var(--accent)]" aria-label="Enviadas" />
+                <div className="flex items-center justify-end gap-3 mt-2 px-1 text-[10px]" style={{ color: "var(--text-4)" }}>
+                  {comProcesso && onProcesso && <LinkProcesso onClick={() => onProcesso(comProcesso.id)} />}
+                  <span className="flex items-center gap-1">
+                    {hora(ultima.created_at)}
+                    <CheckCheck className="w-3.5 h-3.5" style={{ color: "var(--accent)" }} aria-label="Enviadas" />
+                  </span>
                 </div>
               </div>
             </div>
           );
         }
-        return <Balao key={it.chave} item={it} onAbrir={setAmpliada} />;
-      })}
+        return <Balao key={it.chave} item={it as Extract<Item, { tipo: "msg" }>} onAbrir={setAmpliada} onProcesso={onProcesso} />;
+          })}
+        </section>
+      ))}
       {ampliada && <Visualizador src={ampliada} onFechar={() => setAmpliada(null)} />}
     </div>
   );

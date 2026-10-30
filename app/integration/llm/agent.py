@@ -4,7 +4,7 @@ Orquestrador do Agente de IA com suporte a Tool Calling.
 Provedor principal configurável por LLM_PROVIDER (gemini ou ollama) e fallback
 determinístico para manter o atendimento responsivo mesmo sem IA disponível.
 """
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 import json
 import random
@@ -45,6 +45,21 @@ class ToolResult:
     fallback: bool = False
     # Imóveis retornados pela busca, para envio de foto + legenda pelo WhatsApp.
     imoveis: Optional[List[Dict[str, Any]]] = None
+    # Como a resposta foi produzida ('regras', 'gemini', 'ollama' ou 'fallback') e cada
+    # etapa, para o portal mostrar o processo da IA. Só metadados, nunca segredos.
+    rota: str = ""
+    passos: List[Dict[str, Any]] = field(default_factory=list)
+
+
+def _curto(valor: Any, limite: int = 160) -> Any:
+    """Versão enxuta de argumentos/resultados para o registro de processo."""
+    if isinstance(valor, str):
+        return valor if len(valor) <= limite else valor[:limite].rstrip() + "…"
+    if isinstance(valor, dict):
+        return {k: _curto(v, limite) for k, v in list(valor.items())[:12]}
+    if isinstance(valor, (list, tuple)):
+        return [_curto(v, limite) for v in list(valor)[:8]]
+    return valor
 
 
 _PERFIL_SCHEMA = {
@@ -606,7 +621,16 @@ def _parse_limite(texto: str, default: int = 5) -> int:
 
 
 class AgentOrchestrator:
+    def _passo(self, etapa: str, detalhe: str = "", ms: Optional[float] = None, **extra: Any) -> None:
+        passo: Dict[str, Any] = {"etapa": etapa, "detalhe": detalhe}
+        if ms is not None:
+            passo["ms"] = round(ms)
+        passo.update({k: _curto(v) for k, v in extra.items() if v not in (None, "", {}, [])})
+        self._passos.append(passo)
+
     def __init__(self, tenant_id: UUID, corretor, session: AsyncSession):
+        self._passos: List[Dict[str, Any]] = []
+        self._rota = ""
         self.tenant_id = tenant_id
         self.corretor = corretor
         self._session = session
@@ -1325,20 +1349,43 @@ class AgentOrchestrator:
     ) -> ToolResult:
         """Executa o Gemini com tool calling e naturaliza o resultado da ferramenta."""
         cliente = GeminiClient()
+        modelo = getattr(cliente, "model", None) or settings.gemini_model
+        self._rota = "gemini"
+        t0 = time.perf_counter()
         resposta = await cliente.gerar(system_prompt, messages, tools=AGENT_TOOLS)
+        decisao_ms = (time.perf_counter() - t0) * 1000
 
         chamada = resposta.get("function_call")
         if chamada:
             nome_funcao = chamada["name"]
             argumentos = chamada.get("args") or {}
             parte_chamada = resposta.get("function_call_part")
+            self._passo(
+                "Interpretação",
+                f"{modelo} entendeu o pedido e escolheu a ferramenta {nome_funcao}",
+                decisao_ms, ferramenta=nome_funcao, argumentos=argumentos,
+            )
+            t1 = time.perf_counter()
             texto_ferramenta, proposta, imoveis = await self._executar_ferramenta(
                 nome_funcao, argumentos
             )
+            self._passo(
+                "Ferramenta",
+                f"Executou {nome_funcao}"
+                + (f" e achou {len(imoveis)} imóvel(is)" if imoveis else ""),
+                (time.perf_counter() - t1) * 1000, resultado=texto_ferramenta,
+            )
+            if proposta:
+                self._passo(
+                    "Confirmação pendente",
+                    "Aguarda o 'sim' do corretor antes de gravar; nada foi alterado ainda",
+                    tipo=proposta.tipo,
+                )
 
             # Segunda passada: o resultado bruto da ferramenta vira uma resposta
             # humana. Propostas de escrita e taxas ficam exatamente como estão.
             if not proposta and nome_funcao in ("consultar_imoveis", "consultar_clientes", "match_lead"):
+                t2 = time.perf_counter()
                 try:
                     natural = await cliente.gerar_apos_ferramenta(
                         system_prompt=system_prompt,
@@ -1352,8 +1399,10 @@ class AgentOrchestrator:
                     natural = _limpar_resposta(natural or "")
                     if natural and _resposta_texto_valida(natural):
                         texto_ferramenta = natural
+                        self._passo("Redação", "A IA reescreveu o resultado em linguagem natural", (time.perf_counter() - t2) * 1000)
                 except GeminiError as e:
                     log.warning("gemini_naturalizacao_falhou", error=str(e)[:200])
+                    self._passo("Redação", "A IA não reescreveu; usou o texto da ferramenta", (time.perf_counter() - t2) * 1000, motivo=str(e)[:120])
 
             return ToolResult(
                 texto=texto_ferramenta,
@@ -1363,6 +1412,7 @@ class AgentOrchestrator:
 
         content = _limpar_resposta(resposta.get("text") or "")
         if _resposta_texto_valida(content):
+            self._passo("Resposta direta", f"{modelo} respondeu sem precisar de ferramenta", decisao_ms)
             return ToolResult(texto=content)
 
         log.warning("gemini_resposta_invalida", trecho=content[:120])
@@ -1372,6 +1422,8 @@ class AgentOrchestrator:
         self, tenant_cfg: Dict[str, Any], messages: List[Dict[str, str]], mensagem: str
     ) -> ToolResult:
         """Executa o modelo local via API de Chat do Ollama."""
+        self._rota = "ollama"
+        self._passo("Interpretação", f"Modelo local {tenant_cfg['model']} analisou o pedido")
         ollama_url = f"{settings.ollama_base_url.rstrip('/')}/api/chat"
         payload = {
             "model": tenant_cfg["model"],
@@ -1442,10 +1494,14 @@ class AgentOrchestrator:
         `entrada_audio`/`resposta_em_audio` ajustam o prompt: transcrição pode
         ter erros, e resposta que vira voz precisa ser escrita como fala.
         """
+        self._passos = []
+        self._rota = ""
         self._cfg = await self._carregar_config_tenant()
         resultado = await self._processar(
             mensagem, historico, self._cfg, entrada_audio, resposta_em_audio
         )
+        resultado.rota = self._rota or ("fallback" if resultado.fallback else "")
+        resultado.passos = list(self._passos)
         # Garantia além da instrução no prompt: palavra proibida nunca sai.
         if self._cfg.get("palavras_proibidas") and resultado.texto:
             resultado.texto = remover_palavras_proibidas(
@@ -1475,6 +1531,8 @@ class AgentOrchestrator:
             incluir_clientes=not usar_gemini,
         )
         if deterministico:
+            self._rota = "regras"
+            self._passo("Roteamento", "Pedido reconhecido por regras; a IA não foi chamada (resposta imediata)")
             return deterministico
 
         system_prompt = self._montar_system_prompt(
@@ -1490,12 +1548,17 @@ class AgentOrchestrator:
                 return await self._processar_gemini(system_prompt, messages)
             except GeminiError as e:
                 log.warning("gemini_falhou", error=str(e))
+                self._passo("Falha da IA", "O Gemini não respondeu; entrou a rota de segurança", motivo=str(e)[:160])
                 # Se a IA falhar, tenta a rota determinística de imóveis.
                 fallback = await self._roteamento_deterministico(
                     mensagem, tenant_cfg, incluir_imoveis=True
                 )
                 if fallback:
+                    self._rota = "regras"
+                    self._passo("Roteamento", "Respondeu por regras (busca de imóveis) no lugar da IA")
                     return fallback
+                self._rota = "fallback"
+                self._passo("Resposta de segurança", "Sem IA, pediu mais detalhes ao corretor em vez de arriscar")
                 return self._fallback_deterministico(mensagem)
 
         return await self._processar_ollama(tenant_cfg, messages, mensagem)

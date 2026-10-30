@@ -18,6 +18,7 @@ from fastapi.responses import JSONResponse
 from app.api.routers import (
     assistente,
     auth,
+    conversas_admin,
     crm_admin,
     dev_panel,
     tenant_admin,
@@ -93,6 +94,7 @@ app.include_router(whatsapp_webhook.router, prefix="/webhook", tags=["WhatsApp"]
 app.include_router(dev_panel.router, prefix="/dev", tags=["Painel Dev"])
 app.include_router(tenant_admin.router, prefix="/admin", tags=["Admin Imobiliária"])
 app.include_router(crm_admin.router, prefix="/admin/crm", tags=["CRM"])
+app.include_router(conversas_admin.router, prefix="/admin", tags=["Conversas"])
 app.include_router(assistente.router, prefix="/admin/assistente", tags=["Assistente"])
 app.include_router(corretor_portal.router, prefix="/corretor", tags=["Corretor"])
 

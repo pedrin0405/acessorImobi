@@ -400,6 +400,14 @@ async def processar_conversa(job: dict) -> None:
             resposta_em_audio=quer_audio,
         )
         trace["ia_fim"] = time.time()
+        # Processo da IA para o portal (rota, etapas e tempos); só metadados.
+        trace["processo"] = {
+            "rota": resposta.rota,
+            "passos": resposta.passos,
+            "contexto_msgs": len(historico),
+            "entrada": tipo,
+            "modelo": settings.gemini_model if resposta.rota == "gemini" else None,
+        }
 
         # --- Envia resposta ---
         quer_audio = quer_audio and _audio_cabe_na_resposta(
@@ -409,6 +417,7 @@ async def processar_conversa(job: dict) -> None:
             tem_imoveis=bool(resposta.imoveis),
             tem_proposta=bool(resposta.proposta_escrita),
         )
+        trace["processo"]["canal"] = "audio" if quer_audio else "texto"
         await _enviar_resposta(
             tenant_id=tenant_id,
             corretor=corretor,

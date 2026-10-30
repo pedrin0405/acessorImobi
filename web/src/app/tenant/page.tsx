@@ -29,7 +29,8 @@ import {
 import { fetchApi, AuthError, clearToken, tokenRole, tokenSub } from "@/lib/api";
 import LoginForm from "@/components/LoginForm";
 import AppShell from "@/components/shell/AppShell";
-import ChatMensagens from "@/components/crm/ChatMensagens";
+import Conversas from "@/components/crm/conversas/Conversas";
+import type { ConversaResumo } from "@/components/crm/conversas/tipos";
 import Inicio from "@/components/crm/Inicio";
 import VisaoGeral from "@/components/crm/VisaoGeral";
 import AgenteConfig from "@/components/crm/AgenteConfig";
@@ -44,28 +45,6 @@ interface Corretor {
   telefone_mascarado: string;
   status: string;
   created_at: string;
-}
-
-interface ConversaResumo {
-  corretor_id: string;
-  corretor_nome: string | null;
-  telefone_mascarado: string;
-  corretor_status: string;
-  ultima_mensagem: string | null;
-  ultima_direcao: "inbound" | "outbound" | string;
-  ultimo_tipo: string;
-  ultima_em: string | null;
-  nao_respondidas: number;
-}
-
-interface Mensagem {
-  id: string;
-  direcao: "inbound" | "outbound" | string;
-  tipo: string;
-  conteudo: string | null;
-  status: string;
-  created_at: string | null;
-  midia?: string | null;
 }
 
 interface WhatsAppStatus {
@@ -91,12 +70,7 @@ export default function TenantAdminPage() {
 
   // Conversas (preview estilo WhatsApp)
   const [conversas, setConversas] = useState<ConversaResumo[]>([]);
-  const [conversaSel, setConversaSel] = useState<ConversaResumo | null>(null);
-  const [mensagens, setMensagens] = useState<Mensagem[]>([]);
   const [loadingConversas, setLoadingConversas] = useState(false);
-  const [loadingMensagens, setLoadingMensagens] = useState(false);
-  const [conversaErro, setConversaErro] = useState<string | null>(null);
-  const chatEndRef = useRef<HTMLDivElement | null>(null);
 
   // Modal novo corretor
   const [novoCorretorOpen, setNovoCorretorOpen] = useState(false);
@@ -157,62 +131,21 @@ export default function TenantAdminPage() {
 
   const loadConversas = async () => {
     setLoadingConversas(true);
-    setConversaErro(null);
     try {
       const res = await fetchApi("/admin/conversas");
       if (res.ok) {
         const data: ConversaResumo[] = await res.json();
         setConversas(data);
         setAuthed(true);
-        setConversaSel((atual) =>
-          atual ? data.find((c) => c.corretor_id === atual.corretor_id) ?? null : null
-        );
-      } else {
-        setConversaErro("Não foi possível carregar as conversas.");
       }
     } catch (e) {
       if (e instanceof AuthError) {
         clearToken();
         setAuthed(false);
-      } else {
-        setConversaErro("Falha na comunicação com a API.");
       }
     } finally {
       setLoadingConversas(false);
     }
-  };
-
-  const abrirConversa = async (conversa: ConversaResumo) => {
-    setConversaSel(conversa);
-    setLoadingMensagens(true);
-    setConversaErro(null);
-    try {
-      const res = await fetchApi(
-        `/admin/conversas/${conversa.corretor_id}/mensagens?limit=200`
-      );
-      if (res.ok) {
-        const data = await res.json();
-        setMensagens(data.mensagens || []);
-      } else {
-        setMensagens([]);
-        setConversaErro("Não foi possível carregar as mensagens desta conversa.");
-      }
-    } catch (e) {
-      if (e instanceof AuthError) {
-        clearToken();
-        setAuthed(false);
-      } else {
-        setConversaErro("Falha na comunicação com a API.");
-      }
-    } finally {
-      setLoadingMensagens(false);
-    }
-  };
-
-  const atualizarConversaAtual = async () => {
-    if (!conversaSel) return;
-    await loadConversas();
-    await abrirConversa(conversaSel);
   };
 
   const loadAuditoria = async () => {
@@ -402,11 +335,6 @@ export default function TenantAdminPage() {
     return () => clearInterval(timer);
   }, [authed, tab]);
 
-  // Mantém o fim da conversa visível ao abrir ou atualizar o histórico.
-  useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [mensagens]);
-
   if (!authed) {
     return (
       <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4">
@@ -444,45 +372,12 @@ export default function TenantAdminPage() {
       : `data:image/png;base64,${whatsapp.qr_code}`
     : null;
 
-  const formatarHora = (iso: string | null) => {
-    if (!iso) return "";
-    return new Date(iso).toLocaleTimeString("pt-BR", {
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  };
-
-  const formatarData = (iso: string | null) => {
-    if (!iso) return "";
-    const data = new Date(iso);
-    const hoje = new Date();
-    const mesmoDia = data.toDateString() === hoje.toDateString();
-    return mesmoDia
-      ? formatarHora(iso)
-      : data.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
-  };
-
-  const previewMensagem = (conversa: ConversaResumo) => {
-    if (!conversa.ultima_mensagem) {
-      if (conversa.ultimo_tipo === "audio") return "🎤 Áudio";
-      if (conversa.ultimo_tipo === "image") return "📷 Foto";
-      if (conversa.ultimo_tipo === "document") return "📄 Documento";
-      return "Sem prévia";
-    }
-    const prefixo = conversa.ultima_direcao === "outbound" ? "Acessor: " : "";
-    if (conversa.ultimo_tipo === "image") {
-      const titulo = conversa.ultima_mensagem.split("\n")[0].replace(/^[^A-Za-z0-9À-ÿ]+/, "").replace(/\*/g, "").trim();
-      return `${prefixo}📷 ${titulo || "Foto"}`;
-    }
-    if (conversa.ultimo_tipo === "audio") return `${prefixo}🎤 ${conversa.ultima_mensagem}`;
-    return `${prefixo}${conversa.ultima_mensagem.replace(/\*/g, "")}`;
-  };
-
   return (
     <AppShell
       marca="Acessor"
       subtitulo="Portal da imobiliária"
       ativo={tab}
+      larguraTotal={tab === "conversas"}
       onSelecionar={(id) => setTab(id as Aba)}
       grupos={[
         {
@@ -519,177 +414,13 @@ export default function TenantAdminPage() {
 
         {/* Tab Conversas */}
         {tab === "conversas" && (
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-            <div className="p-6 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              <div>
-                <h2 className="font-semibold text-slate-900">Conversas do WhatsApp</h2>
-                <p className="text-xs text-slate-500 mt-1">
-                  Acompanhe as mensagens trocadas entre o agente Acessor e os corretores da imobiliária.
-                </p>
-              </div>
-              <button
-                onClick={atualizarConversaAtual}
-                disabled={loadingConversas || loadingMensagens}
-                className="flex items-center justify-center gap-2 px-3.5 py-2 rounded-xl text-sm font-medium text-slate-600 hover:bg-slate-100 disabled:opacity-50 transition-colors"
-              >
-                <RefreshCw
-                  className={`w-4 h-4 ${loadingConversas || loadingMensagens ? "animate-spin" : ""}`}
-                />
-                Atualizar
-              </button>
-            </div>
-
-            {conversaErro && (
-              <div className="mx-6 mt-4 p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-sm flex items-start gap-2">
-                <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
-                <span>{conversaErro}</span>
-              </div>
-            )}
-
-            <div className="flex h-[600px] border-t border-slate-100">
-              {/* Lista de conversas */}
-              <aside
-                className={`${
-                  conversaSel ? "hidden md:flex" : "flex"
-                } w-full md:w-[330px] shrink-0 flex-col border-r border-slate-200 bg-white`}
-              >
-                {loadingConversas && conversas.length === 0 ? (
-                  <div className="flex-1 flex flex-col items-center justify-center text-slate-400 gap-2">
-                    <Loader2 className="w-6 h-6 animate-spin" />
-                    <span className="text-sm">Carregando conversas...</span>
-                  </div>
-                ) : conversas.length === 0 ? (
-                  <div className="flex-1 flex flex-col items-center justify-center text-center px-8 gap-3">
-                    <div className="w-14 h-14 rounded-full bg-slate-100 flex items-center justify-center">
-                      <MessageSquare className="w-7 h-7 text-slate-400" />
-                    </div>
-                    <p className="text-sm font-medium text-slate-700">Nenhuma conversa ainda</p>
-                    <p className="text-xs text-slate-500">
-                      Quando um corretor enviar mensagem para o WhatsApp do agente, a conversa aparece aqui.
-                    </p>
-                    <button
-                      onClick={() => setTab("whatsapp")}
-                      className="mt-1 text-xs font-medium text-emerald-700 hover:text-emerald-600 underline underline-offset-2"
-                    >
-                      Verificar conexão do WhatsApp
-                    </button>
-                  </div>
-                ) : (
-                  <div className="flex-1 overflow-y-auto divide-y divide-slate-100">
-                    {conversas.map((c) => {
-                      const ativa = conversaSel?.corretor_id === c.corretor_id;
-                      return (
-                        <button
-                          key={c.corretor_id}
-                          onClick={() => abrirConversa(c)}
-                          className={`w-full text-left px-4 py-3.5 flex items-start gap-3 transition-colors ${
-                            ativa ? "bg-emerald-50/70" : "hover:bg-slate-50"
-                          }`}
-                        >
-                          <div className="w-11 h-11 shrink-0 rounded-full bg-slate-900 text-white flex items-center justify-center font-semibold text-sm">
-                            {(c.corretor_nome || "?").trim().charAt(0).toUpperCase()}
-                          </div>
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-center justify-between gap-2">
-                              <span className="font-medium text-slate-900 text-sm truncate">
-                                {c.corretor_nome || c.telefone_mascarado}
-                              </span>
-                              <span className="text-[11px] text-slate-400 shrink-0">
-                                {formatarData(c.ultima_em)}
-                              </span>
-                            </div>
-                            <div className="flex items-center justify-between gap-2 mt-0.5">
-                              <span className="text-xs text-slate-500 truncate">
-                                {previewMensagem(c)}
-                              </span>
-                              {c.nao_respondidas > 0 && (
-                                <span className="shrink-0 min-w-[18px] h-[18px] px-1 rounded-full bg-emerald-500 text-white text-[10px] font-bold flex items-center justify-center">
-                                  {c.nao_respondidas}
-                                </span>
-                              )}
-                            </div>
-                          </div>
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
-              </aside>
-
-              {/* Conversa aberta */}
-              <section
-                className={`${conversaSel ? "flex" : "hidden md:flex"} flex-1 min-w-0 flex-col bg-[#efeae2]`}
-              >
-                {conversaSel ? (
-                  <>
-                    <div className="px-4 py-3 bg-white border-b border-slate-200 flex items-center gap-3">
-                      <button
-                        onClick={() => setConversaSel(null)}
-                        className="md:hidden p-1.5 -ml-1 text-slate-500 hover:bg-slate-100 rounded-lg"
-                        title="Voltar para as conversas"
-                      >
-                        <ArrowLeft className="w-5 h-5" />
-                      </button>
-                      <div className="w-10 h-10 shrink-0 rounded-full bg-slate-900 text-white flex items-center justify-center font-semibold text-sm">
-                        {(conversaSel.corretor_nome || "?").trim().charAt(0).toUpperCase()}
-                      </div>
-                      <div className="min-w-0">
-                        <div className="font-semibold text-slate-900 text-sm truncate">
-                          {conversaSel.corretor_nome || "Corretor"}
-                        </div>
-                        <div className="text-[11px] text-slate-500">
-                          {conversaSel.telefone_mascarado}
-                          {conversaSel.corretor_status !== "active" && (
-                            <span className="ml-2 text-amber-600 font-medium uppercase">
-                              {conversaSel.corretor_status}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-
-                    <div
-                      className="flex-1 overflow-y-auto"
-                      style={{
-                        backgroundImage: "radial-gradient(var(--line) 1px, transparent 1px)",
-                        backgroundSize: "22px 22px",
-                      }}
-                    >
-                      {loadingMensagens ? (
-                        <div className="h-full flex items-center justify-center text-slate-500 gap-2">
-                          <Loader2 className="w-5 h-5 animate-spin" />
-                          <span className="text-sm">Carregando mensagens...</span>
-                        </div>
-                      ) : mensagens.length === 0 ? (
-                        <div className="h-full flex items-center justify-center text-slate-500 text-sm">
-                          Nenhuma mensagem nesta conversa.
-                        </div>
-                      ) : (
-                        <>
-                          <ChatMensagens mensagens={mensagens} />
-                          <div ref={chatEndRef} />
-                        </>
-                      )}
-                    </div>
-
-                    <div className="px-4 py-2.5 bg-white border-t border-slate-200 text-[11px] text-slate-500 text-center">
-                      Painel somente leitura. O agente Acessor responde automaticamente pelo WhatsApp.
-                    </div>
-                  </>
-                ) : (
-                  <div className="flex-1 flex flex-col items-center justify-center text-center px-8 gap-3">
-                    <div className="w-16 h-16 rounded-full bg-white/70 flex items-center justify-center">
-                      <MessageSquare className="w-8 h-8 text-slate-400" />
-                    </div>
-                    <p className="text-sm font-medium text-slate-700">Selecione uma conversa</p>
-                    <p className="text-xs text-slate-500 max-w-xs">
-                      Escolha um corretor ao lado para visualizar o histórico de mensagens.
-                    </p>
-                  </div>
-                )}
-              </section>
-            </div>
-          </div>
+          <Conversas
+            conversas={conversas}
+            carregando={loadingConversas}
+            onRecarregar={loadConversas}
+            onAuthError={tratarAuthError}
+            onIr={(id) => setTab(id as Aba)}
+          />
         )}
 
         {/* Tab Corretores */}

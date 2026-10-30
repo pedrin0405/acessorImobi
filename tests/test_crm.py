@@ -214,3 +214,52 @@ def test_assistente_anexos_e_titulo():
     assert titulo_da_conversa("") == "Nova conversa"
     longo = titulo_da_conversa("palavra " * 30)
     assert len(longo) <= 61 and longo.endswith("…")
+
+
+def test_processo_da_ia_a_partir_do_trace():
+    from app.domain.conversa.portal import descrever_acao, processo_do_trace
+
+    # Mensagem antiga (só tempos): reconstrói contexto, IA e transcrição.
+    antigo = {
+        "inicio": 100.0, "transcricao_inicio": 100.5, "transcricao_fim": 102.5,
+        "contexto_inicio": 102.5, "contexto_fim": 102.51, "ia_inicio": 102.51, "ia_fim": 106.0,
+    }
+    proc = processo_do_trace(antigo)
+    etapas = [p["etapa"] for p in proc["passos"]]
+    assert etapas == ["Mensagem recebida", "Transcrição", "Contexto", "IA"]
+    assert proc["passos"][1]["ms"] == 2000 and proc["total_ms"] == 6000
+
+    # Mensagem nova: usa as etapas registradas pelo agente e mostra o canal.
+    novo = {
+        "inicio": 10.0, "contexto_inicio": 10.0, "contexto_fim": 10.01, "ia_inicio": 10.01, "ia_fim": 11.0,
+        "processo": {
+            "rota": "gemini", "contexto_msgs": 12, "canal": "texto", "modelo": "gemini-x",
+            "passos": [{"etapa": "Ferramenta", "detalhe": "Executou consultar_imoveis", "ms": 120}],
+        },
+    }
+    proc = processo_do_trace(novo)
+    assert [p["etapa"] for p in proc["passos"]] == ["Mensagem recebida", "Contexto", "Ferramenta", "Entrega"]
+    assert proc["rota"] == "gemini" and "12 mensagens" in proc["passos"][1]["detalhe"]
+
+    # Sem registro de IA (mensagem do corretor ou da equipe) não há processo.
+    assert processo_do_trace({"origem": "humano"}) is None
+    assert processo_do_trace(None) is None
+
+    assert descrever_acao("crm_registrar_lead", {"nome": "Ana"}) == "Anotou o cliente Ana"
+    assert descrever_acao("crm_mover_negocio", {"status": "ganho"}) == "Moveu um negócio para ganho"
+    assert descrever_acao("crm_agendar", {"tipo": "visita", "cliente": "Luciano", "data": "2026-10-30", "hora": "14:12"}) == "Agendou visita com Luciano em 2026-10-30 às 14:12"
+
+
+def test_agente_registra_o_processo_ao_responder():
+    import asyncio
+
+    from app.integration.llm.agent import AgentOrchestrator, _curto
+
+    assert _curto("x" * 500).endswith("…") and len(_curto("x" * 500)) <= 161
+    assert _curto({"a": ["b" * 400]})["a"][0].endswith("…")
+
+    agente = AgentOrchestrator.__new__(AgentOrchestrator)
+    agente._passos = []
+    agente._rota = ""
+    agente._passo("Ferramenta", "Executou x", 12.4, argumentos={"q": "ana"}, resultado="")
+    assert agente._passos == [{"etapa": "Ferramenta", "detalhe": "Executou x", "ms": 12, "argumentos": {"q": "ana"}}]

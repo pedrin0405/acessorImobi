@@ -19,6 +19,7 @@ from sqlalchemy import text
 from app.api.middleware.auth import require_admin
 from app.domain.corretor.service import CorretorService
 from app.domain.auditoria.service import AuditoriaService
+from app.domain.conversa.portal import ConversaPortalService
 from app.domain.conversa.service import ConversaService
 from app.domain.tenant.service import TenantService
 from app.integration.tts.vozes import VOZ_PADRAO, listar_vozes, resolver_voz, voz_valida
@@ -156,6 +157,11 @@ class MensagemResponse(BaseModel):
     created_at: Optional[str]
     # URL da foto (http...) ou rota autenticada do áudio (/admin/...); None sem mídia.
     midia: Optional[str] = None
+    # Quem escreveu: 'bot' (agente), 'humano' (equipe pelo portal), 'nota' (nota interna) ou None (corretor).
+    origem: Optional[str] = None
+    autor: Optional[str] = None
+    # Como a IA respondeu (etapas e tempos), só nas respostas do agente.
+    processo: Optional[Dict[str, Any]] = None
 
 
 class ConversaDetalheResponse(BaseModel):
@@ -400,12 +406,7 @@ async def listar_mensagens_conversa(
         if not corretor:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Corretor não encontrado.")
 
-        service = ConversaService(session)
-        mensagens = await service.mensagens(
-            corretor_id=corretor_id,
-            tenant_id=admin.tenant_id,
-            limit=limit,
-        )
+        mensagens = await ConversaPortalService(session, admin.tenant_id).mensagens(corretor_id, limit=limit)
 
         codigos = sorted({
             int(a.group(1))
