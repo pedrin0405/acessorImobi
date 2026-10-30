@@ -467,6 +467,23 @@ def _normalizar(texto: str) -> str:
     return sem_acento.lower().strip()
 
 
+# Pedidos de escrita no CRM (anotar cliente, abrir negócio, marcar visita...).
+# Só a IA sabe executá-los; as rotas sem IA não podem confundi-los com busca
+# de imóveis só porque a frase cita "apartamento" ou "alugar".
+_RE_VERBO_CRM = re.compile(
+    r"\b(anota\w*|anote\w*|cadastr\w*|cri(?:a|ar|e|em)|registr\w*|adiciona\w*|inclu\w*|"
+    r"agend\w*|marc(?:a|ar|e)|atualiz\w*|mov(?:e|er)|fech(?:a|ar))\b"
+)
+_RE_ALVO_CRM = re.compile(r"\b(lead|leads|lid|lids|carteira|visita|visitas|negocio|negocios|reuniao|ligacao|follow)\b")
+_RE_ANOTAR = re.compile(r"\b(anota\w*|anote\w*)\b")
+
+
+def _pede_escrita_crm(texto_normalizado: str) -> bool:
+    if _RE_ANOTAR.search(texto_normalizado):
+        return True
+    return bool(_RE_VERBO_CRM.search(texto_normalizado) and _RE_ALVO_CRM.search(texto_normalizado))
+
+
 _ANOTACAO_FOTOS = re.compile(r"\[Enviei [^\]]*\]\s*")
 
 
@@ -761,6 +778,12 @@ class AgentOrchestrator:
         fica False para que saudações e papo casual sejam respondidos pela IA.
         """
         texto = _normalizar(mensagem)
+
+        # "Anota a Ana, quer apê de 2 quartos..." parece busca de imóvel, mas é
+        # um pedido para o CRM; sem a IA, nenhuma das buscas abaixo se aplica.
+        if _pede_escrita_crm(texto):
+            incluir_imoveis = False
+            incluir_clientes = False
 
         # Saudações, testes de conexão e agradecimentos.
         if incluir_conversa and re.fullmatch(
@@ -1486,6 +1509,15 @@ class AgentOrchestrator:
         msg = _normalizar(mensagem)
         nome = (getattr(self.corretor, "nome", None) or "").split()
         vocativo = f", {nome[0]}" if nome and random.random() < 0.5 else ""
+
+        if _pede_escrita_crm(msg):
+            return ToolResult(
+                texto=(
+                    f"Não consegui anotar isso agora{vocativo}: minha IA está fora do ar por um instante. "
+                    "Nada foi gravado. Manda de novo daqui a pouco?"
+                ),
+                fallback=True,
+            )
 
         if re.search(r"\b(imove(l|is)|aluguel|venda|apto|apartamento|casa|lote)\b", msg):
             opcoes = (

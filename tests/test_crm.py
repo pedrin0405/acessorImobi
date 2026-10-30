@@ -159,3 +159,25 @@ def test_prompt_usa_configuracao_estruturada():
     assert TONS["formal"]["instrucao"] in prompt
     for trecho in ("alto padrão", "famílias", "Boutique da Orla.", "Trabalhamos com permuta", "barato", "registrar_lead"):
         assert trecho in prompt
+
+
+def test_pedido_de_crm_nao_vira_busca_de_imoveis():
+    from app.integration.llm.agent import AgentOrchestrator, _normalizar, _pede_escrita_crm
+
+    pedidos = [
+        "Cria um novo Lid na carteira, chamada Ana. Ela tem interesse em alugar um apartamento de dois quartos na Orla",
+        "anota a Ana, quer alugar apê de 2 quartos na Orla até 3 mil",
+        "marca visita com a Ana amanhã às 10h",
+    ]
+    for pedido in pedidos:
+        assert _pede_escrita_crm(_normalizar(pedido)), pedido
+
+    for busca in ("me manda apartamentos de 2 quartos na Orla para alugar", "busca o cliente Maria"):
+        assert not _pede_escrita_crm(_normalizar(busca)), busca
+
+    # Sem IA, a resposta é honesta e nada é gravado nem buscado.
+    agente = AgentOrchestrator.__new__(AgentOrchestrator)
+    agente.corretor = type("C", (), {"nome": "Pedro Augusto"})()
+    resposta = agente._fallback_deterministico(pedidos[0])
+    assert resposta.fallback and "Nada foi gravado" in resposta.texto
+    assert not resposta.imoveis and not resposta.proposta_escrita
