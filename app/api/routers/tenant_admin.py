@@ -7,6 +7,7 @@ Permissões:
 - Consulta uso, auditoria e pendências de integração
 - NÃO acessa conteúdo de conversa por padrão (se acessar, fica registrado)
 """
+import asyncio
 import re
 from typing import Any, Dict, List, Optional
 from uuid import UUID
@@ -17,6 +18,7 @@ from pydantic import BaseModel, field_validator
 from sqlalchemy import text
 
 from app.api.middleware.auth import require_admin
+from app.domain.corretor import foto as foto_corretor
 from app.domain.corretor.service import CorretorService
 from app.domain.auditoria.service import AuditoriaService
 from app.domain.conversa.portal import ConversaPortalService
@@ -45,6 +47,7 @@ class CorretorResponse(BaseModel):
     telefone_mascarado: str
     status: str
     created_at: str
+    foto_url: Optional[str] = None
 
 
 class ConfigurarAgenteRequest(BaseModel):
@@ -192,6 +195,8 @@ class MensagemResponse(BaseModel):
     autor: Optional[str] = None
     # Como a IA respondeu (etapas e tempos), só nas respostas do agente.
     processo: Optional[Dict[str, Any]] = None
+    # Ficha enviada pela equipe como ação rápida (hoje: {"tipo": "lead", "lead": {...}}).
+    cartao: Optional[Dict[str, Any]] = None
 
 
 class ConversaDetalheResponse(BaseModel):
@@ -211,7 +216,18 @@ def _corretor_response(c, tenant_id: UUID) -> CorretorResponse:
         telefone_mascarado=mask_phone(c.telefone),
         status=c.status,
         created_at=c.created_at.isoformat(),
+        foto_url=foto_corretor.url_da_foto(c.id, c.foto_ref, c.foto_atualizada_em),
     )
+
+
+def _buscar_foto_em_segundo_plano(tenant_id: UUID, corretor_id: UUID) -> None:
+    """Puxa a foto do WhatsApp sem atrasar a resposta; falhas ficam só no log."""
+    tarefa = asyncio.create_task(foto_corretor.sincronizar_foto(tenant_id, corretor_id))
+    _tarefas_foto.add(tarefa)
+    tarefa.add_done_callback(_tarefas_foto.discard)
+
+
+_tarefas_foto: set = set()
 
 
 @router.post(
@@ -272,6 +288,7 @@ async def criar_corretor(
         corretor_id=str(corretor.id),
         admin=admin.sub,
     )
+    _buscar_foto_em_segundo_plano(admin.tenant_id, corretor.id)
     return _corretor_response(corretor, admin.tenant_id)
 
 
@@ -325,7 +342,43 @@ async def decidir_corretor(
         aprovado=body.aprovado,
         admin=admin.sub,
     )
+    if body.aprovado:
+        _buscar_foto_em_segundo_plano(admin.tenant_id, corretor_id)
     return {"status": corretor.status}
+
+
+@router.get("/corretores/{corretor_id}/foto", summary="Foto do corretor (a do perfil do WhatsApp)")
+async def foto_do_corretor(corretor_id: UUID, admin=Depends(require_admin)):
+    async with get_session(admin.tenant_id) as session:
+        ref = (await session.execute(
+            text("SELECT foto_ref FROM corretores WHERE id = :id AND tenant_id = :tid"),
+            {"id": str(corretor_id), "tid": str(admin.tenant_id)},
+        )).scalar()
+    lido = await ler_midia(ref) if ref else None
+    if not lido:
+        raise HTTPException(status_code=404, detail="Este corretor não tem foto.")
+    dados, tipo = lido
+    return Response(content=dados, media_type=tipo, headers={"Cache-Control": "private, max-age=86400"})
+
+
+@router.post("/corretores/{corretor_id}/foto/atualizar", summary="Busca de novo a foto do WhatsApp do corretor")
+async def atualizar_foto_do_corretor(corretor_id: UUID, admin=Depends(require_admin)):
+    resultado = await foto_corretor.sincronizar_foto(admin.tenant_id, corretor_id)
+    mensagens = {
+        "atualizada": "Foto atualizada a partir do WhatsApp.",
+        "sem_foto": "O WhatsApp deste número não tem foto visível (ou ela está oculta por privacidade).",
+        "manual": "Este corretor tem uma foto escolhida manualmente; ela foi mantida.",
+        "sem_sessao": "Conecte o WhatsApp do agente para buscar as fotos.",
+        "erro": "Não foi possível buscar a foto agora. Tente de novo em instantes.",
+    }
+    async with get_session(admin.tenant_id) as session:
+        c = (await session.execute(
+            text("SELECT id, foto_ref, foto_atualizada_em FROM corretores WHERE id = :id AND tenant_id = :tid"),
+            {"id": str(corretor_id), "tid": str(admin.tenant_id)},
+        )).first()
+    if not c:
+        raise HTTPException(status_code=404, detail="Corretor não encontrado.")
+    return {"resultado": resultado, "mensagem": mensagens[resultado], "foto_url": foto_corretor.url_da_foto(c.id, c.foto_ref, c.foto_atualizada_em)}
 
 
 @router.get(

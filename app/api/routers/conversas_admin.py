@@ -1,4 +1,5 @@
 """Ações do portal sobre a conversa de um corretor: ficha, envio pela equipe, notas e resumo."""
+from typing import List, Literal, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -15,6 +16,13 @@ router = APIRouter()
 
 class TextoEntrada(BaseModel):
     texto: str = Field(default="", max_length=8000)
+
+
+class AcaoRapida(BaseModel):
+    tipo: Literal["imoveis", "lead"]
+    codigos: List[int] = Field(default_factory=list, max_length=6)
+    lead_id: Optional[UUID] = None
+    mensagem: str = Field(default="", max_length=1000)
 
 
 def _http(e: PortalErro) -> HTTPException:
@@ -48,6 +56,33 @@ async def enviar(corretor_id: UUID, body: TextoEntrada, admin=Depends(require_ad
             entidade="mensagem", entidade_id=mensagem["id"], origem="portal",
         )
         return mensagem
+
+
+@router.post("/conversas/{corretor_id}/acoes-rapidas/previa", summary="Mostra o que a ação rápida enviará, sem enviar")
+async def previa_acao(corretor_id: UUID, body: AcaoRapida, admin=Depends(require_admin)):
+    async with get_session(admin.tenant_id) as session:
+        await _corretor(session, admin, corretor_id)
+        try:
+            return {"mensagens": await ConversaPortalService(session, admin.tenant_id).montar_acao(body.tipo, body.codigos, body.lead_id, body.mensagem)}
+        except PortalErro as e:
+            raise _http(e)
+
+
+@router.post("/conversas/{corretor_id}/acoes-rapidas/enviar", summary="Envia ao corretor imóveis da carteira ou a ficha de um lead")
+async def enviar_acao(corretor_id: UUID, body: AcaoRapida, admin=Depends(require_admin)):
+    async with get_session(admin.tenant_id) as session:
+        corretor = await _corretor(session, admin, corretor_id)
+        try:
+            resultado = await ConversaPortalService(session, admin.tenant_id).enviar_acao(
+                corretor, body.tipo, body.codigos, body.lead_id, body.mensagem, admin.sub,
+            )
+        except PortalErro as e:
+            raise _http(e)
+        await AuditoriaService(session).registrar(
+            tenant_id=admin.tenant_id, corretor_id=corretor.id, acao=f"enviar_{body.tipo}_portal",
+            entidade="mensagem", entidade_id=resultado["mensagens"][0]["id"], origem="portal",
+        )
+        return resultado
 
 
 @router.post("/conversas/{corretor_id}/notas", status_code=status.HTTP_201_CREATED, summary="Nota interna da equipe (não é enviada ao corretor)")

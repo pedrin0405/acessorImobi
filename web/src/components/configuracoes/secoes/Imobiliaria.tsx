@@ -3,6 +3,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Building2, Check, Copy, Plus, Shuffle, Upload, User } from "lucide-react";
 import { UFS, dataCurta, mascaraDocumento, mascaraTelefone } from "../constantes";
+import AvatarCorretor from "../../corretor/AvatarCorretor";
 import { Aviso, Botao, Bloco, Cartao, Carregando, Entrada, Iniciais, Interruptor, Linha, Salvar, Selo, Seletor, Titulo, Vazio, reduzirImagem, useApi, useRecado } from "../ui";
 
 /* ---------- Dados da imobiliária ---------- */
@@ -130,7 +131,7 @@ export function DadosSecao({ onAuthError }: { onAuthError: (e: unknown) => boole
 /* ---------- Equipe ---------- */
 
 interface Admin { id: string; nome: string; email: string; ativo: boolean; desde: string; foto: string | null; papel: "proprietario" | "admin"; voce: boolean }
-interface Corretor { id: string; nome: string | null; telefone_mascarado: string; status: string; desde: string }
+interface Corretor { id: string; nome: string | null; telefone_mascarado: string; status: string; desde: string; foto_url?: string | null }
 interface Equipe { admins: Admin[]; corretores: Corretor[] }
 
 const PAPEIS = [
@@ -150,6 +151,8 @@ export function EquipeSecao({ onAuthError, onIr }: { onAuthError: (e: unknown) =
   const [rodando, setRodando] = useState(false);
   const [senhaTemp, setSenhaTemp] = useState<{ email: string; senha: string } | null>(null);
   const [copiado, setCopiado] = useState(false);
+  const [buscandoFoto, setBuscandoFoto] = useState<string | null>(null);
+  const [recadoFoto, mostrarFoto] = useRecado(5000);
 
   const carregar = useCallback(async () => {
     const r = await api<Equipe>("/admin/configuracoes/equipe");
@@ -164,6 +167,14 @@ export function EquipeSecao({ onAuthError, onIr }: { onAuthError: (e: unknown) =
     if (!r.ok || !r.dados) return setErro(r.erro);
     setSenhaTemp({ email: r.dados.email, senha: r.dados.senha_temporaria });
     setNome(""); setEmail(""); setConvidar(false); carregar();
+  };
+
+  const atualizarFoto = async (c: Corretor) => {
+    setBuscandoFoto(c.id);
+    const r = await api<{ mensagem: string }>(`/admin/corretores/${c.id}/foto/atualizar`, { method: "POST" });
+    setBuscandoFoto(null);
+    if (!r.ok || !r.dados) return setErro(r.erro);
+    setErro(null); mostrarFoto(r.dados.mensagem); carregar();
   };
 
   const alternar = async (a: Admin) => {
@@ -227,13 +238,16 @@ export function EquipeSecao({ onAuthError, onIr }: { onAuthError: (e: unknown) =
                 const [rotulo, tom] = STATUS_CORRETOR[c.status] || [c.status, "neutro" as const];
                 return (
                   <div key={c.id} className="flex items-center gap-3 px-5 py-3">
-                    <Iniciais nome={c.nome || "?"} tamanho={36} />
+                    <AvatarCorretor nome={c.nome} fotoUrl={c.foto_url} tamanho={36} />
                     <div className="min-w-0 flex-1"><p className="text-sm truncate" style={{ color: "var(--text)" }}>{c.nome || "Aguardando cadastro…"}</p><p className="text-xs" style={{ color: "var(--text-3)" }}>{c.telefone_mascarado} · desde {dataCurta(c.desde)}</p></div>
                     <Selo tom={tom}>{rotulo}</Selo>
+                    {c.status === "active" && <Botao variante="fantasma" onClick={() => atualizarFoto(c)} carregando={buscandoFoto === c.id} title="Buscar de novo a foto do perfil do WhatsApp">Atualizar foto</Botao>}
                   </div>
                 );
               })}
             </Cartao>
+            {recadoFoto && <div className="mt-3"><Aviso tom="ok">{recadoFoto}</Aviso></div>}
+            <p className="mt-3 text-xs" style={{ color: "var(--text-3)" }}>A foto de cada corretor é a do perfil do WhatsApp dele, atualizada todo dia. Sem foto visível, aparecem as iniciais.</p>
             <div className="mt-3"><Botao onClick={() => onIr("corretores")}>Gerenciar corretores</Botao></div>
           </>
         )}

@@ -77,7 +77,9 @@ Sempre nesta ordem, para o código novo não pedir coluna que ainda não existe:
 O que cada migração recente cria: `007` mídia das mensagens, `008` conversas do assistente,
 `009` notas internas, `010` memória das conversas (pgvector), `011` integração e status do Imoview,
 `012` configurações da imobiliária (dados, listas, localidades, tipos de atividade, roleta, lembretes),
-`013` leads do Imoview (cliente sem responsável, telefone de busca, status da importação).
+`013` leads do Imoview (cliente sem responsável, telefone de busca, status da importação),
+`014` funil automático (um negócio na etapa Lead para cada cliente, cadastro do Imoview em `dados_imoview`),
+`015` foto do corretor vinda do perfil do WhatsApp.
 
 ## O que depende do Gemini
 
@@ -105,3 +107,7 @@ onde parou. Depois, o `scheduler` busca os novos a cada 30 minutos e confere tud
 - Se o telefone já existe em um cliente (por exemplo, anotado pelo corretor no WhatsApp), o lead é
   vinculado a ele, sem duplicar, e o responsável é mantido.
 - CPF e CNPJ **não** são importados (LGPD).
+
+Depois de aplicar a 014, clique em **Reimportar tudo** (Configurações → Integrações → Clientes) uma vez
+para preencher o cadastro completo dos leads já importados. A foto dos corretores é buscada no WhatsApp
+quando há sessão conectada; sem foto, aparecem as iniciais.

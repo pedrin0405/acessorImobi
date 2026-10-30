@@ -14,6 +14,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.domain.crm.service import CrmService, resumo_perfil
 from app.integration.llm.gemini import GeminiClient, GeminiError
+from app.domain.conversa import acoes_rapidas
+from app.domain.imovel import consulta as consulta_imoveis
 from app.integration.whatsapp.evolution import EvolutionClient
 from app.shared.security import mask_phone
 
@@ -119,6 +121,7 @@ class ConversaPortalService:
                 "created_at": r.created_at.isoformat() if r.created_at else None,
                 "origem": "humano" if humano else ("bot" if r.direcao == "outbound" else None),
                 "autor": trace.get("autor") if humano else None,
+                "cartao": trace.get("cartao") if humano else None,
                 "processo": None if humano or r.direcao != "outbound" else processo_do_trace(trace),
                 "_grupo": trace.get("inicio"),
             })
@@ -188,6 +191,89 @@ class ConversaPortalService:
             "id": str(linha.id), "direcao": "outbound", "tipo": "text", "conteudo": texto, "status": "sent",
             "midia_url": None, "created_at": linha.created_at.isoformat(), "origem": "humano", "autor": autor, "processo": None,
         }
+
+    # --- Ações rápidas (imóveis e ficha de lead) ---------------------------------
+
+    async def _instancia(self) -> str:
+        sessao = (await self._session.execute(
+            text("SELECT instance_id FROM whatsapp_sessions WHERE tenant_id = :tid AND tipo = 'agente' AND status = 'connected' LIMIT 1"),
+            {"tid": str(self._tenant_id)},
+        )).first()
+        if not sessao:
+            raise PortalErro("O WhatsApp do agente não está conectado. Conecte o número para enviar mensagens.", 503)
+        return sessao.instance_id
+
+    async def montar_acao(self, tipo: str, codigos: List[int], lead_id: Optional[UUID], mensagem: str = "") -> List[Dict[str, Any]]:
+        """Mensagens que a ação rápida enviará, na ordem. Serve à prévia e ao envio."""
+        saida: List[Dict[str, Any]] = []
+        mensagem = (mensagem or "").strip()
+        if mensagem:
+            saida.append({"tipo": "text", "texto": mensagem, "foto_url": None, "cartao": None})
+        if tipo == "imoveis":
+            codigos = list(dict.fromkeys(codigos))[: acoes_rapidas.MAX_IMOVEIS]
+            itens = await consulta_imoveis.obter_itens(self._session, self._tenant_id, codigos)
+            if not itens:
+                raise PortalErro("Escolha ao menos um imóvel da carteira.")
+            for item in itens:
+                saida.append({"tipo": "image", "texto": acoes_rapidas.texto_imovel(item), "foto_url": item.get("foto_url"), "cartao": None, "codigo": item["codigo"]})
+        elif tipo == "lead":
+            if not lead_id:
+                raise PortalErro("Escolha o cliente que será enviado.")
+            row = (await self._session.execute(
+                text("""SELECT l.*, c.nome AS corretor_nome FROM crm_leads l
+                        LEFT JOIN corretores c ON c.id = l.corretor_id
+                        WHERE l.tenant_id = :tid AND l.id = :id"""),
+                {"tid": str(self._tenant_id), "id": str(lead_id)},
+            )).first()
+            if not row:
+                raise PortalErro("Cliente não encontrado.", 404)
+            ficha = acoes_rapidas.ficha_do_lead(dict(row._mapping))
+            saida.append({"tipo": "text", "texto": acoes_rapidas.texto_lead(ficha), "foto_url": None, "cartao": {"tipo": "lead", "lead": ficha}})
+        else:
+            raise PortalErro("Ação rápida desconhecida.")
+        return saida
+
+    async def enviar_acao(self, corretor, tipo: str, codigos: List[int], lead_id: Optional[UUID], mensagem: str, autor: str) -> Dict[str, Any]:
+        partes = await self.montar_acao(tipo, codigos, lead_id, mensagem)
+        instancia = await self._instancia()
+        cliente = EvolutionClient()
+        enviadas: List[Dict[str, Any]] = []
+        for parte in partes:
+            foto = parte["foto_url"]
+            try:
+                if foto:
+                    try:
+                        await cliente.send_media(instance_id=instancia, to=corretor.telefone, media_url=foto, caption=parte["texto"][:1000], file_name=f"imovel-{parte.get('codigo', 'foto')}.jpg")
+                    except Exception as e:  # noqa: BLE001
+                        log.warning("acao_rapida_foto_falhou", error=str(e)[:200])
+                        await cliente.send_text(instance_id=instancia, to=corretor.telefone, text=parte["texto"])
+                else:
+                    await cliente.send_text(instance_id=instancia, to=corretor.telefone, text=parte["texto"])
+            except Exception as e:  # noqa: BLE001
+                log.warning("acao_rapida_falhou", error=str(e)[:200])
+                break
+            trace: Dict[str, Any] = {"origem": "humano", "autor": autor}
+            if parte["cartao"]:
+                trace["cartao"] = parte["cartao"]
+            linha = (await self._session.execute(
+                text("""
+                    INSERT INTO mensagens (tenant_id, corretor_id, message_id, direcao, tipo, conteudo, midia_url, status, trace, created_at)
+                    VALUES (:tid, :cid, :mid, 'outbound', :tipo, :texto, :midia, 'sent', CAST(:trace AS jsonb), clock_timestamp())
+                    RETURNING id, created_at
+                """),
+                {
+                    "tid": str(self._tenant_id), "cid": str(corretor.id), "mid": f"out_{int(time.time() * 1000)}_{uuid4().hex[:6]}",
+                    "tipo": parte["tipo"], "texto": parte["texto"], "midia": foto, "trace": json.dumps(trace),
+                },
+            )).first()
+            enviadas.append({
+                "id": str(linha.id), "direcao": "outbound", "tipo": parte["tipo"], "conteudo": parte["texto"], "status": "sent",
+                "midia": foto, "created_at": linha.created_at.isoformat(), "origem": "humano", "autor": autor,
+                "cartao": parte["cartao"], "processo": None,
+            })
+        if not enviadas:
+            raise PortalErro("Não consegui entregar a mensagem agora. Tente de novo em instantes.", 502)
+        return {"mensagens": enviadas, "falhas": len(partes) - len(enviadas)}
 
     async def criar_nota(self, corretor_id: UUID, texto: str, autor: str) -> Dict[str, Any]:
         texto = (texto or "").strip()

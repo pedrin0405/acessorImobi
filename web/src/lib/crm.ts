@@ -24,6 +24,11 @@ export interface Negocio {
   fechamento_previsto: string | null;
   imovel_codigo: number | null;
   lead_nome: string;
+  lead_telefone?: string | null;
+  lead_email?: string | null;
+  lead_origem?: string;
+  lead_temperatura?: "quente" | "morno" | "frio";
+  automatico?: boolean;
   corretor_nome: string | null;
   dias_na_etapa: number;
   travado: boolean;
@@ -44,6 +49,23 @@ export interface Forecast {
   total: number;
   esperado: number;
   quantidade: number;
+}
+
+export interface FunilEtapa {
+  etapa_id: string;
+  etapa: string;
+  cor: string;
+  probabilidade: number;
+  quantidade: number;
+  travados: number;
+  total: number;
+  esperado: number;
+  negocios: Negocio[];
+}
+
+export interface Funil {
+  etapas: FunilEtapa[];
+  totais: { quantidade: number; total: number; esperado: number; travados: number };
 }
 
 export interface Perfil {

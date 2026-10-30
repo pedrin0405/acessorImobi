@@ -39,6 +39,7 @@ import VisaoGeral from "@/components/crm/VisaoGeral";
 import Configuracoes from "@/components/configuracoes/Configuracoes";
 import Agenda from "@/components/crm/Agenda";
 import Leads from "@/components/crm/Leads";
+import AvatarCorretor from "@/components/corretor/AvatarCorretor";
 import Negociacoes from "@/components/crm/Negociacoes";
 
 interface Corretor {
@@ -48,6 +49,7 @@ interface Corretor {
   telefone_mascarado: string;
   status: string;
   created_at: string;
+  foto_url?: string | null;
 }
 
 interface WhatsAppStatus {
@@ -617,7 +619,7 @@ export default function TenantAdminPage() {
       marca="Acessor"
       subtitulo="Portal da imobiliária"
       ativo={tab}
-      larguraTotal={tab === "conversas"}
+      larguraTotal={tab === "conversas" || tab === "agenda"}
       onSelecionar={(id) => setTab(id as Aba)}
       grupos={[
         {
@@ -650,7 +652,7 @@ export default function TenantAdminPage() {
       }}
     >
         {tab === "inicio" && <Inicio nome={tokenSub().split("@")[0] || "equipe"} onIr={(id) => setTab(id as Aba)} onAuthError={tratarAuthError} />}
-        {tab === "visao" && <VisaoGeral onAuthError={tratarAuthError} />}
+        {tab === "visao" && <VisaoGeral onAuthError={tratarAuthError} onIr={(id) => setTab(id as Aba)} />}
 
         {/* Tab Conversas */}
         {tab === "conversas" && (
@@ -694,7 +696,9 @@ export default function TenantAdminPage() {
               <div className="divide-y divide-slate-100">
                 {corretores.map((c) => (
                   <div key={c.id} className="p-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
-                    <div>
+                    <div className="flex items-start gap-4">
+                      <AvatarCorretor nome={c.nome} fotoUrl={c.foto_url} tamanho={44} />
+                      <div>
                       <div className="flex items-center gap-3">
                         <span className="font-bold text-slate-900">{c.nome || "Aguardando cadastro..."}</span>
                         <span
@@ -712,6 +716,7 @@ export default function TenantAdminPage() {
                       <div className="text-xs text-slate-500 mt-1 space-x-3">
                         <span>Tel: {c.telefone_mascarado}</span>
                         {c.email && <span>E-mail: {c.email}</span>}
+                      </div>
                       </div>
                     </div>
 

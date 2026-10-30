@@ -1,10 +1,11 @@
 "use client";
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { AlertTriangle, BedDouble, Bath, Building2, Car, ChevronLeft, ChevronRight, Home, Loader2, RefreshCw, Ruler, Star } from "lucide-react";
+import { AlertTriangle, Building2, ChevronLeft, ChevronRight, Home, Loader2, RefreshCw } from "lucide-react";
 import { fetchApi } from "@/lib/api";
 import BarraFiltros, { ChipsAtivos } from "./Filtros";
 import DetalheImovel from "./Detalhe";
+import CartaoImovel from "./CartaoImovel";
 import { useSincronizacao } from "./useSincronizacao";
 import {
   FILTROS_VAZIOS, Filtros, ImovelResumo, ListaImoveis, Facetas, StatusSync, numero, paraParametros, precoDoImovel, relativo, rotuloFinalidade,
@@ -35,54 +36,25 @@ function Foto({ url, alt, className = "" }: { url: string | null; alt: string; c
   return <img src={url} alt={alt} loading="lazy" referrerPolicy="no-referrer" onError={() => setFalhou(true)} className={`object-cover ${className}`} />;
 }
 
-function Indicadores({ i }: { i: ImovelResumo }) {
-  const itens = [
-    { icone: BedDouble, valor: i.quartos, rotulo: "quartos" },
-    { icone: Bath, valor: i.banheiros, rotulo: "banheiros" },
-    { icone: Car, valor: i.vagas, rotulo: "vagas" },
-    { icone: Ruler, valor: i.area_m2 ? Math.round(i.area_m2) : null, rotulo: "m²", sufixo: " m²" },
-  ].filter((x) => x.valor);
-  return (
-    <ul className="flex flex-wrap items-center gap-x-3.5 gap-y-1 text-[13px]" style={{ color: "var(--text-3)" }} aria-label="Características">
-      {itens.map(({ icone: Icone, valor, rotulo, sufixo }) => (
-        <li key={rotulo} className="inline-flex items-center gap-1.5 tabular-nums" title={`${valor} ${rotulo}`}>
-          <Icone className="w-3.5 h-3.5" aria-hidden />
-          <span><span className="sr-only">{rotulo}: </span>{valor}{sufixo || ""}</span>
-        </li>
-      ))}
-    </ul>
-  );
-}
-
 function CardImovel({ i, onAbrir }: { i: ImovelResumo; onAbrir: () => void }) {
   return (
-    <li>
-      <button
-        type="button"
-        onClick={onAbrir}
-        className="group w-full h-full flex flex-col text-left rounded-2xl overflow-hidden transition-[transform,border-color] duration-200 hover:-translate-y-0.5 hover:border-[var(--line-2)]"
-        style={{ background: "var(--card)", border: "1px solid var(--line)", opacity: i.ativo ? 1 : 0.6 }}
-        aria-label={`${i.tipo || "Imóvel"} em ${i.bairro || "local não informado"}, ${rotuloFinalidade(i.finalidade)}, ${precoDoImovel(i)}, código ${i.codigo}`}
-      >
-        <div className="relative aspect-[4/3] w-full overflow-hidden" style={{ background: "var(--card-2)" }}>
-          <Foto url={i.foto_url} alt="" className="absolute inset-0 w-full h-full transition-transform duration-300 group-hover:scale-[1.03]" />
-          <span className="absolute left-2.5 top-2.5 px-2 py-0.5 rounded-md text-[11px] font-semibold bg-black/65 text-white backdrop-blur-sm">{rotuloFinalidade(i.finalidade)}</span>
-          {i.destaque && (
-            <span className="absolute right-2.5 top-2.5 inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold bg-black/65 text-white backdrop-blur-sm">
-              <Star className="w-3 h-3" fill="currentColor" aria-hidden /> Destaque
-            </span>
-          )}
-          {!i.ativo && <span className="absolute left-2.5 bottom-2.5 px-2 py-0.5 rounded-md text-[11px] font-semibold" style={{ background: "var(--warn)", color: "var(--bg)" }}>Fora do Imoview</span>}
-        </div>
-        <div className="flex flex-col gap-2 p-3.5 flex-1">
-          <p className="text-lg font-semibold leading-tight tabular-nums" style={{ color: "var(--text)" }}>{precoDoImovel(i)}</p>
-          <div className="min-w-0">
-            <p className="truncate text-sm font-medium" style={{ color: "var(--text)" }}>{i.tipo || "Imóvel"} · {i.bairro || "Local não informado"}</p>
-            <p className="truncate text-xs" style={{ color: "var(--text-3)" }}>{[i.cidade, i.estado].filter(Boolean).join("/")} · Cód. <span className="tabular-nums">{i.codigo}</span></p>
-          </div>
-          <Indicadores i={i} />
-        </div>
-      </button>
+    <li className="h-full">
+      <CartaoImovel
+        foto={i.foto_url}
+        titulo={`${i.tipo || "Imóvel"} · ${i.bairro || "Local não informado"}`}
+        subtitulo={[i.cidade, i.estado].filter(Boolean).join("/")}
+        preco={precoDoImovel(i)}
+        selo={rotuloFinalidade(i.finalidade)}
+        codigo={i.codigo}
+        quartos={i.quartos}
+        banheiros={i.banheiros}
+        vagas={i.vagas}
+        area={i.area_m2 ? Math.round(i.area_m2) : null}
+        destaque={i.destaque}
+        inativo={!i.ativo}
+        onAbrir={onAbrir}
+        ariaLabel={`${i.tipo || "Imóvel"} em ${i.bairro || "local não informado"}, ${rotuloFinalidade(i.finalidade)}, ${precoDoImovel(i)}, código ${i.codigo}`}
+      />
     </li>
   );
 }

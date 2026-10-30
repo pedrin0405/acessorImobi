@@ -146,6 +146,18 @@ async def listar(
     return resposta
 
 
+async def obter_itens(session, tenant_id: UUID, codigos: List[int]) -> List[Dict[str, Any]]:
+    """Imóveis do cache pelos códigos, na ordem pedida (códigos que não existem são ignorados)."""
+    if not codigos:
+        return []
+    linhas = (await session.execute(
+        text(f"SELECT {_COLUNAS} FROM imoveis_cache WHERE tenant_id = :tid AND codigo_imoview = ANY(:codigos)"),
+        {"tid": str(tenant_id), "codigos": list(codigos)},
+    )).fetchall()
+    por_codigo = {r.codigo_imoview: _item(r) for r in linhas}
+    return [por_codigo[c] for c in codigos if c in por_codigo]
+
+
 async def facetas(session, tenant_id: UUID, filtros: Dict[str, Any]) -> Dict[str, Any]:
     """Contagens por finalidade, tipo, bairro e cidade, e faixas de valor e área."""
     resultado: Dict[str, Any] = {}

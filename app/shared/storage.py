@@ -71,3 +71,13 @@ async def ler_midia(referencia: str) -> Optional[Tuple[bytes, str]]:
     except S3Error as e:
         log.warning("midia_nao_encontrada", codigo=e.code)
         return None
+
+
+async def guardar_objeto(chave: str, dados: bytes, content_type: str) -> Optional[str]:
+    """Grava com chave fixa (sobrescreve) e devolve `s3:<chave>`; None se o storage falhar."""
+    try:
+        await asyncio.to_thread(_enviar, chave, dados, content_type)
+    except Exception as e:  # noqa: BLE001
+        log.warning("objeto_nao_guardado", error=str(e)[:200])
+        return None
+    return PREFIXO_S3 + chave

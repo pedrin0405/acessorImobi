@@ -1,11 +1,12 @@
 "use client";
 
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { ArrowUp, Loader2, Lock, Smile } from "lucide-react";
+import { ArrowUp, Building2, Loader2, Lock, Plus, Smile, UserRound } from "lucide-react";
 
 const EMOJIS = ["😀", "😊", "😉", "😍", "🙂", "😅", "😂", "🤝", "👍", "👏", "🙏", "💪", "🎉", "✅", "⚠️", "❗", "📍", "🏠", "🏢", "🔑", "📅", "⏰", "📞", "💬", "📎", "💰", "📄", "👋", "🤔", "😬", "🙌", "✨"];
 
 export type ModoCompositor = "mensagem" | "nota";
+export type AcaoRapidaCompositor = "imoveis" | "lead";
 
 export default function CompositorConversa({
   modo,
@@ -16,6 +17,7 @@ export default function CompositorConversa({
   enviando,
   semWhatsapp,
   erro,
+  onAcao,
 }: {
   modo: ModoCompositor;
   onModo: (m: ModoCompositor) => void;
@@ -26,12 +28,17 @@ export default function CompositorConversa({
   /** WhatsApp do agente desconectado: mensagem não pode ser entregue (nota continua valendo). */
   semWhatsapp: boolean;
   erro: string | null;
+  /** Abre uma ação rápida (enviar imóveis ou a ficha de um cliente). Ausente = sem o menu. */
+  onAcao?: (a: AcaoRapidaCompositor) => void;
 }) {
   const area = useRef<HTMLTextAreaElement | null>(null);
   const caixa = useRef<HTMLDivElement | null>(null);
   const [emojis, setEmojis] = useState(false);
+  const [menu, setMenu] = useState(false);
   const nota = modo === "nota";
   const bloqueado = !nota && semWhatsapp;
+  const comAcoes = !!onAcao && !nota;
+  const abrirMenu = menu && comAcoes;
   const pode = texto.trim().length > 0 && !enviando && !bloqueado;
 
   useLayoutEffect(() => {
@@ -42,16 +49,17 @@ export default function CompositorConversa({
   }, [texto]);
 
   useEffect(() => {
-    if (!emojis) return;
-    const fora = (e: MouseEvent) => !caixa.current?.contains(e.target as Node) && setEmojis(false);
-    const esc = (e: KeyboardEvent) => e.key === "Escape" && setEmojis(false);
+    if (!emojis && !menu) return;
+    const fechar = () => { setEmojis(false); setMenu(false); };
+    const fora = (e: MouseEvent) => !caixa.current?.contains(e.target as Node) && fechar();
+    const esc = (e: KeyboardEvent) => e.key === "Escape" && fechar();
     document.addEventListener("mousedown", fora);
     document.addEventListener("keydown", esc);
     return () => {
       document.removeEventListener("mousedown", fora);
       document.removeEventListener("keydown", esc);
     };
-  }, [emojis]);
+  }, [emojis, menu]);
 
   const inserir = (emoji: string) => {
     const el = area.current;
@@ -85,11 +93,24 @@ export default function CompositorConversa({
           borderColor: nota ? "color-mix(in srgb, var(--warn) 40%, transparent)" : "var(--line-2)",
         }}
       >
+        {comAcoes && (
+          <button
+            type="button"
+            onClick={() => { setMenu((v) => !v); setEmojis(false); }}
+            aria-label="Ações rápidas"
+            aria-haspopup="menu"
+            aria-expanded={abrirMenu}
+            className="w-9 h-9 -ml-2 shrink-0 rounded-full flex items-center justify-center hover:bg-[var(--hover-solid)] transition-transform"
+            style={{ color: abrirMenu ? "var(--accent)" : "var(--text-3)", transform: abrirMenu ? "rotate(45deg)" : "none" }}
+          >
+            <Plus className="w-5 h-5" />
+          </button>
+        )}
         <textarea
           ref={area}
           rows={1}
           value={texto}
-          onChange={(e) => onTexto(e.target.value)}
+          onChange={(e) => { onTexto(e.target.value); if (comAcoes && e.target.value === "/") setMenu(true); else if (menu && e.target.value !== "/") setMenu(false); }}
           onKeyDown={(e) => {
             if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
               e.preventDefault();
@@ -124,6 +145,17 @@ export default function CompositorConversa({
         </button>
       </div>
 
+      {abrirMenu && (
+        <div role="menu" aria-label="Ações rápidas" className="assist-pop absolute left-6 bottom-full mb-1 z-20 w-72 p-1.5 rounded-2xl shadow-2xl" style={{ background: "var(--card)", border: "1px solid var(--line-2)" }}>
+          {([["imoveis", "Enviar imóveis", "Escolha da carteira, com foto e valor", Building2], ["lead", "Enviar cliente", "Ficha do lead: contato, busca e responsável", UserRound]] as const).map(([id, titulo, descricao, Icone]) => (
+            <button key={id} type="button" role="menuitem" onClick={() => { setMenu(false); if (texto === "/") onTexto(""); onAcao!(id); }} className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left hover:bg-[var(--hover-solid)]">
+              <span className="w-9 h-9 rounded-full flex items-center justify-center shrink-0" style={{ background: "var(--card-2)", color: "var(--accent-text)" }}><Icone className="w-4 h-4" aria-hidden /></span>
+              <span className="min-w-0"><span className="block text-sm font-medium" style={{ color: "var(--text)" }}>{titulo}</span><span className="block text-xs" style={{ color: "var(--text-3)" }}>{descricao}</span></span>
+            </button>
+          ))}
+        </div>
+      )}
+
       {emojis && (
         <div role="dialog" aria-label="Emojis" className="assist-pop absolute right-6 bottom-full mb-1 z-20 grid grid-cols-8 gap-0.5 p-2 rounded-2xl shadow-2xl" style={{ background: "var(--card)", border: "1px solid var(--line-2)" }}>
           {EMOJIS.map((e) => (
@@ -144,7 +176,7 @@ export default function CompositorConversa({
           </button>
         </div>
         <p className="text-[11px]" style={{ color: "var(--text-4)" }}>
-          {nota ? "A nota não é enviada ao corretor" : "Enter envia pelo número do agente"} · Shift ↵ nova linha
+          {nota ? "A nota não é enviada ao corretor" : "Enter envia pelo número do agente"} · Shift ↵ nova linha{comAcoes ? " · / ações rápidas" : ""}
         </p>
       </div>
     </div>

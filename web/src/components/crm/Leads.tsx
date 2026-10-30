@@ -1,8 +1,9 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronLeft, ChevronRight, Home, Mail, Phone, Search, Shuffle, UserCheck, X } from "lucide-react";
-import { brl, resumoPerfil, Perfil } from "@/lib/crm";
+import { ChevronLeft, ChevronRight, Search, Shuffle, UserCheck, X } from "lucide-react";
+import { Perfil } from "@/lib/crm";
+import FichaCliente from "./FichaCliente";
 import { Aviso, Botao, Entrada, Seletor, Selo, useApi, useRecado } from "@/components/configuracoes/ui";
 
 interface Cliente {
@@ -30,17 +31,7 @@ interface Pagina {
   resumo: { total: number; sem_responsavel: number; imoview: number };
 }
 
-interface ImovelMatch {
-  codigo: number;
-  tipo: string | null;
-  bairro: string | null;
-  quartos: number | null;
-  valor: number | null;
-  foto_url: string | null;
-  link_anuncio: string | null;
-}
-
-const ORIGENS: Record<string, string> = { whatsapp: "WhatsApp", imoview: "Imoview", manual: "Manual", whatsapp_pessoal: "WhatsApp pessoal" };
+const ORIGENS: Record<string, string> = { whatsapp: "WhatsApp", imoview: "Imoview", manual: "Manual", portal: "Portal", whatsapp_pessoal: "WhatsApp pessoal" };
 const rotuloOrigem = (o: string) => ORIGENS[o] || (o.charAt(0).toUpperCase() + o.slice(1)).replace(/_/g, " ");
 const COR_TEMP: Record<string, string> = { quente: "var(--danger)", morno: "var(--warn)", frio: "var(--info)" };
 const n = (v: number) => v.toLocaleString("pt-BR");
@@ -75,7 +66,7 @@ export default function Leads({ onAuthError, onIr }: { onAuthError: (e: unknown)
   const [recado, mostrar] = useRecado(5000);
 
   const [aberto, setAberto] = useState<Cliente | null>(null);
-  const [imoveis, setImoveis] = useState<ImovelMatch[] | null>(null);
+  const painel = useRef<HTMLElement>(null);
   const requisicao = useRef(0);
 
   useEffect(() => {
@@ -109,10 +100,10 @@ export default function Leads({ onAuthError, onIr }: { onAuthError: (e: unknown)
 
   const mudarFiltro = (f: () => void) => { f(); setPagina(1); setMarcados(new Set()); setTodosDoFiltro(false); };
 
-  const abrir = async (c: Cliente) => {
-    setAberto(c); setImoveis(null);
-    const r = await api<ImovelMatch[]>(`/admin/crm/leads/${c.id}/match`);
-    setImoveis(r.ok && r.dados ? r.dados : []);
+  const abrir = (c: Cliente) => {
+    setAberto(c);
+    // em telas estreitas a ficha fica abaixo da lista: leva o usuário até ela
+    if (typeof window !== "undefined" && window.innerWidth < 1280) setTimeout(() => painel.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
   };
 
   const itens = dados?.itens || [];
@@ -133,7 +124,6 @@ export default function Leads({ onAuthError, onIr }: { onAuthError: (e: unknown)
     setErro(null);
     mostrar(`${n(r.dados.atribuidos)} ${r.dados.atribuidos === 1 ? "cliente atribuído" : "clientes atribuídos"}${roleta ? " pela roleta" : ""}.`);
     setMarcados(new Set()); setTodosDoFiltro(false); setDestino("");
-    if (aberto) setAberto(null);
     carregar();
   };
 
@@ -177,7 +167,7 @@ export default function Leads({ onAuthError, onIr }: { onAuthError: (e: unknown)
       {erro && <div className="mb-4"><Aviso tom="erro">{erro}</Aviso></div>}
       {recado && <div className="mb-4 assist-fade"><Aviso tom="ok">{recado}</Aviso></div>}
 
-      <div className="grid xl:grid-cols-[minmax(0,1fr)_340px] gap-5 items-start">
+      <div className="grid xl:grid-cols-[minmax(0,1fr)_420px] gap-5 items-start">
         <section className="rounded-2xl overflow-hidden" style={{ background: "var(--card)", border: "1px solid var(--line)" }} aria-busy={carregando} aria-label="Lista de clientes">
           {marcados.size > 0 || todosDoFiltro ? (
             <div className="assist-fade px-4 py-3 flex flex-wrap items-center gap-3" style={{ background: "var(--accent-soft)", borderBottom: "1px solid var(--line)" }}>
@@ -222,8 +212,8 @@ export default function Leads({ onAuthError, onIr }: { onAuthError: (e: unknown)
                           <p className="text-xs truncate max-w-[14rem] sm:max-w-[18rem]" style={{ color: "var(--text-3)" }}>{[fone(c.telefone), c.email].filter(Boolean).join(" · ") || "Sem contato"}</p>
                           <p className="sm:hidden mt-1 text-xs" style={{ color: c.corretor_nome ? "var(--text-2)" : "var(--warn)" }}>{c.corretor_nome || "Sem responsável"}</p>
                         </td>
-                        <td className="py-3 pr-3 hidden md:table-cell"><Selo tom={c.origem === "imoview" ? "info" : "neutro"}>{rotuloOrigem(c.origem)}</Selo></td>
-                        <td className="py-3 pr-3 hidden sm:table-cell">{c.corretor_nome ? <span style={{ color: "var(--text-2)" }}>{c.corretor_nome}</span> : <Selo tom="aviso">Sem responsável</Selo>}</td>
+                        <td className="py-3 pr-3 hidden md:table-cell whitespace-nowrap"><Selo tom={c.origem === "imoview" ? "info" : "neutro"}>{rotuloOrigem(c.origem)}</Selo></td>
+                        <td className="py-3 pr-3 hidden sm:table-cell whitespace-nowrap">{c.corretor_nome ? <span style={{ color: "var(--text-2)" }}>{c.corretor_nome}</span> : <Selo tom="aviso">Sem responsável</Selo>}</td>
                         <td className="py-3 pr-4 hidden lg:table-cell text-xs tabular-nums" style={{ color: "var(--text-3)" }}>{data(c.created_at)}</td>
                       </tr>
                     );
@@ -245,57 +235,15 @@ export default function Leads({ onAuthError, onIr }: { onAuthError: (e: unknown)
           )}
         </section>
 
-        <aside aria-label="Detalhes do cliente" className="rounded-2xl p-5 xl:sticky xl:top-24" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
+        <aside ref={painel} aria-label="Detalhes do cliente" className="rounded-2xl p-5 xl:sticky xl:top-24 xl:max-h-[calc(100vh-7rem)] xl:overflow-y-auto" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
           {!aberto ? (
-            <p className="text-sm" style={{ color: "var(--text-3)" }}>Selecione um cliente para ver o contato, atribuir um corretor e ver os imóveis que combinam com ele.</p>
+            <p className="text-sm" style={{ color: "var(--text-3)" }}>Selecione um cliente para ver a ficha completa: contato, cadastro do Imoview, perfil de busca, negócios, atividades e os imóveis que combinam com ele.</p>
           ) : (
-            <div className="space-y-4">
-              <div className="flex justify-between items-start gap-3">
-                <div className="min-w-0">
-                  <h3 className="font-semibold break-words" style={{ color: "var(--text)" }}>{aberto.nome}</h3>
-                  <p className="mt-1 flex items-center gap-2 text-xs" style={{ color: "var(--text-3)" }}><Selo tom={aberto.origem === "imoview" ? "info" : "neutro"}>{rotuloOrigem(aberto.origem)}</Selo>entrou em {data(aberto.created_at)}</p>
-                </div>
-                <button type="button" onClick={() => setAberto(null)} aria-label="Fechar" className="p-1 rounded-lg hover:bg-[var(--hover-solid)]" style={{ color: "var(--text-3)" }}><X className="w-4 h-4" /></button>
-              </div>
-              <ul className="space-y-1.5 text-sm">
-                {aberto.telefone && <li className="flex items-center gap-2"><Phone className="w-4 h-4" style={{ color: "var(--text-3)" }} aria-hidden /><a href={`tel:${aberto.telefone}`} style={{ color: "var(--text)" }}>{fone(aberto.telefone)}</a></li>}
-                {aberto.email && <li className="flex items-center gap-2 min-w-0"><Mail className="w-4 h-4 shrink-0" style={{ color: "var(--text-3)" }} aria-hidden /><a href={`mailto:${aberto.email}`} className="truncate" style={{ color: "var(--text)" }}>{aberto.email}</a></li>}
-                {!aberto.telefone && !aberto.email && <li style={{ color: "var(--text-3)" }}>Sem contato cadastrado.</li>}
-              </ul>
-              {resumoPerfil(aberto.perfil) !== "—" && <p className="text-xs" style={{ color: "var(--text-3)" }}>Procura: {resumoPerfil(aberto.perfil)}</p>}
-              {aberto.observacoes && <p className="text-xs italic" style={{ color: "var(--text-3)" }}>{aberto.observacoes}</p>}
-
-              <div className="pt-3" style={{ borderTop: "1px solid var(--line)" }}>
-                <p className="text-xs mb-2" style={{ color: "var(--text-3)" }}>Responsável: <strong style={{ color: "var(--text)" }}>{aberto.corretor_nome || "ninguém ainda"}</strong></p>
-                <div className="flex gap-2">
-                  <Seletor aria-label="Atribuir este cliente a" value={destino} onChange={(e) => setDestino(e.target.value)}><option value="">{aberto.corretor_nome ? "Passar para…" : "Atribuir a…"}</option>{corretores.filter((c) => c.id !== aberto.corretor_id).map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}</Seletor>
-                  <Botao variante="primario" onClick={() => atribuir(false, [aberto.id], destino)} disabled={!destino} carregando={atribuindo}>Atribuir</Botao>
-                </div>
-              </div>
-
-              <div className="pt-3" style={{ borderTop: "1px solid var(--line)" }}>
-                <h4 className="text-xs font-semibold uppercase tracking-wide mb-3" style={{ color: "var(--text-4)" }}>Combina com</h4>
-                {imoveis === null ? <p className="text-sm" style={{ color: "var(--text-3)" }}>Cruzando com a carteira…</p>
-                  : imoveis.length === 0 ? <p className="text-sm" style={{ color: "var(--text-3)" }}>{resumoPerfil(aberto.perfil) === "—" ? "Este cliente ainda não tem perfil de busca; o agente o preenche conforme as conversas." : "Nada na carteira atende a esse perfil hoje."}</p>
-                  : (
-                    <ul className="space-y-3">
-                      {imoveis.map((im) => (
-                        <li key={im.codigo} className="flex gap-3">
-                          {im.foto_url ? (
-                            // eslint-disable-next-line @next/next/no-img-element
-                            <img src={im.foto_url} alt="" className="w-16 h-12 rounded-md object-cover" style={{ background: "var(--card-2)" }} />
-                          ) : (<div className="w-16 h-12 rounded-md flex items-center justify-center" style={{ background: "var(--card-2)" }}><Home className="w-4 h-4" style={{ color: "var(--text-4)" }} aria-hidden /></div>)}
-                          <div className="min-w-0 text-xs">
-                            <p className="font-medium truncate" style={{ color: "var(--text)" }}>{im.tipo} · {im.bairro}</p>
-                            <p style={{ color: "var(--text-3)" }}>{im.quartos ? `${im.quartos} quartos · ` : ""}{Number(im.valor) > 0 ? brl(Number(im.valor)) : "valor sob consulta"}</p>
-                            {im.link_anuncio ? <a href={im.link_anuncio} target="_blank" rel="noreferrer" className="underline" style={{ color: "var(--text-2)" }}>Código {im.codigo}</a> : <span style={{ color: "var(--text-3)" }}>Código {im.codigo}</span>}
-                          </div>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-              </div>
-            </div>
+            <FichaCliente
+              clienteId={aberto.id} corretores={corretores} atribuindo={atribuindo} onAuthError={onAuthError}
+              onFechar={() => setAberto(null)} onMudou={carregar}
+              onAtribuir={(id, corretorId) => atribuir(false, [id], corretorId)}
+            />
           )}
         </aside>
       </div>

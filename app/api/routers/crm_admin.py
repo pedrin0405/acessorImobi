@@ -80,6 +80,8 @@ class AtribuirClientes(BaseModel):
 
 class AtividadeUpdate(BaseModel):
     status: Optional[str] = Field(default=None, pattern="^(aberta|concluida|cancelada)$")
+    data: Optional[date] = None  # remarcar: data + hora
+    hora: Optional[str] = Field(default=None, pattern=r"^\d{2}:\d{2}$")
 
 
 def _erro(e: CrmError) -> HTTPException:
@@ -199,7 +201,7 @@ async def atualizar_negocio(negocio_id: UUID, body: NegocioUpdate, admin=Depends
         except CrmError as e:
             raise _erro(e)
         await AuditoriaService(session).registrar(
-            tenant_id=admin.tenant_id, corretor_id=UUID(atual["corretor_id"]),
+            tenant_id=admin.tenant_id, corretor_id=UUID(atual["corretor_id"]) if atual["corretor_id"] else None,
             acao="crm_mover_negocio", entidade="negocio", entidade_id=str(negocio_id),
             payload_antes={"etapa": atual["etapa_nome"], "status": atual["status"]},
             payload_depois=body.model_dump(exclude_none=True), origem="portal",
@@ -211,6 +213,75 @@ async def atualizar_negocio(negocio_id: UUID, body: NegocioUpdate, admin=Depends
 async def forecast(corretor_id: Optional[UUID] = None, admin=Depends(require_admin)):
     async with get_session(admin.tenant_id) as session:
         return await CrmService(session).forecast(admin.tenant_id, corretor_id)
+
+
+def _responsavel_valido(corretor: Optional[str]) -> None:
+    if corretor and corretor != "sem":
+        try:
+            UUID(corretor)
+        except ValueError:
+            raise HTTPException(status_code=422, detail="Corretor inválido.")
+
+
+@router.get("/funil", summary="Quadro do funil: totais por etapa e a primeira página de cada coluna")
+async def funil(
+    status_negocio: str = Query("aberto", alias="status", pattern="^(aberto|ganho|perdido|todos)$"),
+    corretor: Optional[str] = Query(None, max_length=36),  # id de um corretor ou 'sem'
+    termo: Optional[str] = Query(None, max_length=100),
+    ordem: str = Query("recentes", pattern="^(recentes|valor)$"),
+    por_coluna: int = Query(30, ge=5, le=100),
+    admin=Depends(require_admin),
+):
+    _responsavel_valido(corretor)
+    async with get_session(admin.tenant_id) as session:
+        return await CrmService(session).funil(
+            admin.tenant_id, None if status_negocio == "todos" else status_negocio, corretor, termo, ordem, por_coluna,
+        )
+
+
+@router.get("/funil/negocios", summary="Negócios paginados (uma coluna do quadro ou a lista)")
+async def funil_negocios(
+    status_negocio: str = Query("aberto", alias="status", pattern="^(aberto|ganho|perdido|todos)$"),
+    corretor: Optional[str] = Query(None, max_length=36),
+    termo: Optional[str] = Query(None, max_length=100),
+    etapa_id: Optional[UUID] = None,
+    ordem: str = Query("recentes", pattern="^(recentes|valor)$"),
+    deslocamento: int = Query(0, ge=0),
+    limite: int = Query(30, ge=1, le=100),
+    admin=Depends(require_admin),
+):
+    _responsavel_valido(corretor)
+    async with get_session(admin.tenant_id) as session:
+        return await CrmService(session).negocios_pagina(
+            admin.tenant_id, None if status_negocio == "todos" else status_negocio, corretor, termo,
+            str(etapa_id) if etapa_id else None, ordem, deslocamento, limite,
+        )
+
+
+@router.get("/clientes/{lead_id}", summary="Ficha completa do cliente")
+async def ficha_cliente(lead_id: UUID, admin=Depends(require_admin)):
+    async with get_session(admin.tenant_id) as session:
+        ficha = await CrmService(session).ficha_cliente(admin.tenant_id, lead_id)
+        if not ficha:
+            raise HTTPException(status_code=404, detail="Cliente não encontrado.")
+        return ficha
+
+
+class ClienteUpdate(BaseModel):
+    temperatura: Optional[str] = Field(default=None, pattern="^(quente|morno|frio)$")
+    observacoes: Optional[str] = Field(default=None, max_length=2000)
+    status: Optional[str] = Field(default=None, pattern="^(lead|cliente|arquivado)$")
+
+
+@router.patch("/clientes/{lead_id}", summary="Ajusta temperatura, observações ou situação do cliente")
+async def atualizar_cliente(lead_id: UUID, body: ClienteUpdate, admin=Depends(require_admin)):
+    async with get_session(admin.tenant_id) as session:
+        crm = CrmService(session)
+        try:
+            await crm.atualizar_lead(admin.tenant_id, lead_id, observacoes=body.observacoes, temperatura=body.temperatura, status=body.status)
+        except CrmError as e:
+            raise _erro(e)
+        return await crm.ficha_cliente(admin.tenant_id, lead_id)
 
 
 @router.get("/leads", summary="Carteira de clientes dos corretores")
@@ -323,14 +394,21 @@ async def match_lead(lead_id: UUID, admin=Depends(require_admin)):
 async def agenda(
     dias: int = Query(30, ge=1, le=90),
     corretor_id: Optional[UUID] = None,
+    de: Optional[date] = None,
+    ate: Optional[date] = None,
     admin=Depends(require_admin),
 ):
+    """Sem `de`/`ate`: de hoje a `dias` dias. Com eles: o período pedido (limitado a 100 dias)."""
     async with get_session(admin.tenant_id) as session:
         fuso = await _fuso_tenant(session, admin.tenant_id)
         hoje = datetime.now(fuso).replace(hour=0, minute=0, second=0, microsecond=0)
-        return await CrmService(session).agenda(
-            admin.tenant_id, corretor_id, de=hoje, ate=hoje + timedelta(days=dias)
-        )
+        inicio, fim = hoje, hoje + timedelta(days=dias)
+        if de:
+            inicio = datetime(de.year, de.month, de.day, tzinfo=fuso)
+            fim = datetime(ate.year, ate.month, ate.day, tzinfo=fuso) + timedelta(days=1) if ate else inicio + timedelta(days=dias)
+            if fim <= inicio or fim - inicio > timedelta(days=100):
+                raise HTTPException(status_code=422, detail="Período inválido (máximo de 100 dias).")
+        return await CrmService(session).agenda(admin.tenant_id, corretor_id, de=inicio, ate=fim)
 
 
 @router.post("/atividades", status_code=status.HTTP_201_CREATED, summary="Agenda uma atividade para um corretor")
@@ -370,18 +448,26 @@ async def criar_atividade(body: AtividadeCreate, admin=Depends(require_admin)):
 
 @router.patch("/atividades/{atividade_id}", summary="Conclui ou cancela uma atividade")
 async def atualizar_atividade(atividade_id: UUID, body: AtividadeUpdate, admin=Depends(require_admin)):
-    if not body.status:
-        raise HTTPException(status_code=422, detail="Informe o status.")
+    if not body.status and not body.data:
+        raise HTTPException(status_code=422, detail="Informe o status ou a nova data.")
     async with get_session(admin.tenant_id) as session:
+        inicio = None
+        if body.data:
+            fuso = await _fuso_tenant(session, admin.tenant_id)
+            h, m = (int(x) for x in (body.hora or "09:00").split(":"))
+            try:
+                inicio = datetime(body.data.year, body.data.month, body.data.day, h, m, tzinfo=fuso)
+            except ValueError:
+                raise HTTPException(status_code=422, detail="Horário inválido.")
         try:
             atividade = await CrmService(session).atualizar_atividade(
-                admin.tenant_id, atividade_id, status=body.status
+                admin.tenant_id, atividade_id, status=body.status, inicio=inicio
             )
         except CrmError as e:
             raise _erro(e)
         await AuditoriaService(session).registrar(
             tenant_id=admin.tenant_id, corretor_id=UUID(atividade["corretor_id"]),
             acao="crm_atualizar_atividade", entidade="atividade", entidade_id=str(atividade_id),
-            payload_depois=body.model_dump(exclude_none=True), origem="portal",
+            payload_depois=body.model_dump(mode="json", exclude_none=True), origem="portal",
         )
         return atividade

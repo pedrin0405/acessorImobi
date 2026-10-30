@@ -5,6 +5,7 @@ import { AlertTriangle, ArrowLeft, Info, Loader2, MessageSquare, MoreHorizontal,
 import { fetchApi } from "@/lib/api";
 import ChatMensagens, { MensagemChat } from "../ChatMensagens";
 import CompositorConversa, { ModoCompositor } from "./CompositorConversa";
+import AcoesRapidas, { TipoAcao } from "./AcoesRapidas";
 import ListaConversas, { Avatar } from "./ListaConversas";
 import PainelDetalhes, { AbaDetalhes, ResumoEstado } from "./PainelDetalhes";
 import type { ConversaResumo } from "./tipos";
@@ -39,6 +40,7 @@ export default function Conversas({
   const [resumo, setResumo] = useState<ResumoEstado>({ estado: "ocioso", texto: "" });
 
   const [modo, setModo] = useState<ModoCompositor>("mensagem");
+  const [acao, setAcao] = useState<TipoAcao | null>(null);
   const [texto, setTexto] = useState("");
   const [enviando, setEnviando] = useState(false);
   const [erroEnvio, setErroEnvio] = useState<string | null>(null);
@@ -270,7 +272,7 @@ export default function Conversas({
               </div>
 
               <div className="shrink-0" style={{ borderTop: "1px solid var(--line)", background: "var(--bg)" }}>
-                <CompositorConversa modo={modo} onModo={(m) => { setModo(m); setErroEnvio(null); }} texto={texto} onTexto={setTexto} onEnviar={enviar} enviando={enviando} semWhatsapp={online === false} erro={erroEnvio} />
+                <CompositorConversa modo={modo} onModo={(m) => { setModo(m); setErroEnvio(null); }} texto={texto} onTexto={setTexto} onEnviar={enviar} enviando={enviando} semWhatsapp={online === false} erro={erroEnvio} onAcao={setAcao} />
               </div>
             </>
           )}
@@ -299,6 +301,22 @@ export default function Conversas({
           </>
         )}
       </div>
+      {acao && sel && (
+        <AcoesRapidas
+          corretorId={sel.corretor_id}
+          corretorNome={sel.corretor_nome || "o corretor"}
+          tipoInicial={acao}
+          onFechar={() => setAcao(null)}
+          onAuthError={onAuthError}
+          onEnviado={(novas, falhas) => {
+            forcarFim.current = true;
+            setMensagens((m) => [...m, ...novas]);
+            setVersao((v) => v + 1);
+            onRecarregar();
+            if (falhas) setErroEnvio(`${falhas} ${falhas === 1 ? "mensagem não foi entregue" : "mensagens não foram entregues"}. As demais foram enviadas.`);
+          }}
+        />
+      )}
     </div>
   );
 }

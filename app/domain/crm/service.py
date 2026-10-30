@@ -220,7 +220,9 @@ class CrmService:
                 "obs": observacoes,
             },
         )
-        return _linha(row.first())
+        lead = _linha(row.first())
+        await self.garantir_negocios(tenant_id, lead_ids=[lead["id"]])
+        return lead
 
     async def atualizar_lead(
         self,
@@ -401,6 +403,16 @@ class CrmService:
             """),
             {"ids": alvo, "donos": donos, "tid": str(tenant_id)},
         )
+        # Os negócios abertos que ainda não tinham dono (ou criados pelo sistema) seguem o novo responsável.
+        await self._session.execute(
+            text("""
+                UPDATE crm_negocios n SET corretor_id = l.corretor_id, updated_at = NOW()
+                FROM crm_leads l
+                WHERE n.lead_id = l.id AND n.tenant_id = :tid AND l.id = ANY(CAST(:ids AS uuid[]))
+                  AND n.status = 'aberto' AND (n.corretor_id IS NULL OR n.automatico)
+            """),
+            {"ids": alvo, "tid": str(tenant_id)},
+        )
         return r.rowcount or 0
 
     async def encontrar_lead(
@@ -505,6 +517,27 @@ class CrmService:
         if not lead:
             raise CrmError("Não encontrei esse cliente.")
         etapa_row = await self._etapa_por_nome(tenant_id, etapa)
+        # O cliente já tem um negócio criado pelo sistema: quem abre um negócio "assume" esse, sem duplicar.
+        auto = (await self._session.execute(
+            text("""SELECT id FROM crm_negocios WHERE tenant_id = :tid AND lead_id = :lid
+                    AND automatico AND status = 'aberto' ORDER BY created_at LIMIT 1"""),
+            {"tid": str(tenant_id), "lid": str(lead_id)},
+        )).first()
+        if auto:
+            atual = await self.get_negocio(tenant_id, auto.id)
+            row = await self._session.execute(
+                text("""
+                    UPDATE crm_negocios SET corretor_id = :cid, etapa_id = :eid, valor = :valor, imovel_codigo = :imovel,
+                        fechamento_previsto = :fechamento, automatico = FALSE,
+                        etapa_desde = CASE WHEN etapa_id <> :eid THEN NOW() ELSE etapa_desde END
+                    WHERE id = :id RETURNING *
+                """),
+                {"cid": str(corretor_id), "eid": etapa_row["id"], "valor": max(0.0, float(valor or 0)), "imovel": imovel_codigo,
+                 "fechamento": fechamento_previsto, "id": str(auto.id)},
+            )
+            if atual and atual["etapa_nome"] != etapa_row["nome"]:
+                await self._evento(tenant_id, str(auto.id), "etapa", atual["etapa_nome"], etapa_row["nome"], autor)
+            return {**_linha(row.first()), "etapa_nome": etapa_row["nome"]}
         row = await self._session.execute(
             text("""
                 INSERT INTO crm_negocios (
@@ -595,15 +628,16 @@ class CrmService:
     _SELECT_NEGOCIO = """
         SELECT n.*, e.nome AS etapa_nome, e.ordem AS etapa_ordem,
                e.probabilidade, e.alerta_dias, e.cor AS etapa_cor,
-               l.nome AS lead_nome, l.telefone AS lead_telefone,
+               l.nome AS lead_nome, l.telefone AS lead_telefone, l.email AS lead_email,
+               l.origem AS lead_origem, l.temperatura AS lead_temperatura,
                c.nome AS corretor_nome,
                EXTRACT(DAY FROM NOW() - n.etapa_desde)::int AS dias_na_etapa,
-               (n.status = 'aberto' AND e.alerta_dias IS NOT NULL
+               (n.status = 'aberto' AND NOT n.automatico AND e.alerta_dias IS NOT NULL
                 AND n.etapa_desde < NOW() - make_interval(days => e.alerta_dias)) AS travado
         FROM crm_negocios n
         JOIN crm_etapas e ON e.id = n.etapa_id
         JOIN crm_leads l ON l.id = n.lead_id
-        JOIN corretores c ON c.id = n.corretor_id
+        LEFT JOIN corretores c ON c.id = n.corretor_id
     """
 
     async def get_negocio(self, tenant_id: UUID, negocio_id: UUID) -> Optional[Dict[str, Any]]:
@@ -666,30 +700,177 @@ class CrmService:
         )
         return [_linha(r) for r in rows.fetchall()]
 
-    async def forecast(self, tenant_id: UUID, corretor_id: Optional[UUID] = None) -> Dict[str, Any]:
-        """Receita esperada por etapa: soma de valor × probabilidade dos negócios abertos."""
+    @staticmethod
+    def _filtro_negocios(
+        tenant_id: UUID, status: Optional[str], corretor: Optional[str], termo: Optional[str], etapa_id: Optional[str] = None,
+    ) -> "tuple[str, Dict[str, Any]]":
+        where = ["n.tenant_id = :tid"]
+        params: Dict[str, Any] = {"tid": str(tenant_id)}
+        if status in ("aberto", "ganho", "perdido"):
+            where.append("n.status = :status")
+            params["status"] = status
+        if corretor == "sem":
+            where.append("n.corretor_id IS NULL")
+        elif corretor:
+            where.append("n.corretor_id = :cid")
+            params["cid"] = str(UUID(corretor))
+        if etapa_id:
+            where.append("n.etapa_id = :eid")
+            params["eid"] = str(UUID(etapa_id))
+        termo = (termo or "").strip()
+        if termo:
+            digitos = re.sub(r"\D", "", termo)
+            condicoes = ["l.nome ILIKE :termo", "n.titulo ILIKE :termo"]
+            params["termo"] = f"%{termo}%"
+            if len(digitos) >= 4:
+                condicoes.append("l.telefone_busca LIKE :fone")
+                params["fone"] = f"%{digitos[-11:]}%"
+            where.append("(" + " OR ".join(condicoes) + ")")
+        return " AND ".join(where), params
+
+    async def _agregado_etapas(self, tenant_id: UUID, status, corretor, termo) -> List[Dict[str, Any]]:
+        """Contagem, valor e esperado por etapa, calculados no banco (o funil pode ter dezenas de milhares)."""
         etapas = await self.etapas(tenant_id)
-        negocios = await self.listar_negocios(tenant_id, corretor_id, status="aberto")
+        onde, params = self._filtro_negocios(tenant_id, status, corretor, termo)
+        rows = await self._session.execute(
+            text(f"""
+                SELECT n.etapa_id, COUNT(*) AS quantidade, COALESCE(SUM(n.valor), 0) AS total,
+                       COUNT(*) FILTER (WHERE n.status = 'aberto' AND NOT n.automatico AND e.alerta_dias IS NOT NULL
+                                        AND n.etapa_desde < NOW() - make_interval(days => e.alerta_dias)) AS travados
+                FROM crm_negocios n JOIN crm_etapas e ON e.id = n.etapa_id JOIN crm_leads l ON l.id = n.lead_id
+                WHERE {onde} GROUP BY n.etapa_id
+            """),
+            params,
+        )
+        por_etapa = {str(r.etapa_id): r for r in rows.fetchall()}
         linhas = []
         for etapa in etapas:
-            da_etapa = [n for n in negocios if n["etapa_id"] == etapa["id"]]
-            bruto = round(sum(n["valor"] for n in da_etapa), 2)
+            r = por_etapa.get(etapa["id"])
+            bruto = round(float(r.total), 2) if r else 0.0
             linhas.append({
-                "etapa_id": etapa["id"],
-                "etapa": etapa["nome"],
-                "cor": etapa["cor"],
-                "probabilidade": etapa["probabilidade"],
-                "quantidade": len(da_etapa),
-                "travados": sum(1 for n in da_etapa if n["travado"]),
-                "total": bruto,
-                "esperado": round(bruto * etapa["probabilidade"] / 100, 2),
+                "etapa_id": etapa["id"], "etapa": etapa["nome"], "cor": etapa["cor"], "probabilidade": etapa["probabilidade"],
+                "quantidade": int(r.quantidade) if r else 0, "travados": int(r.travados) if r else 0,
+                "total": bruto, "esperado": round(bruto * etapa["probabilidade"] / 100, 2),
             })
+        return linhas
+
+    async def forecast(self, tenant_id: UUID, corretor_id: Optional[UUID] = None) -> Dict[str, Any]:
+        """Receita esperada por etapa: soma de valor × probabilidade dos negócios abertos."""
+        linhas = await self._agregado_etapas(tenant_id, "aberto", str(corretor_id) if corretor_id else None, None)
         return {
             "etapas": linhas,
             "total": round(sum(l["total"] for l in linhas), 2),
             "esperado": round(sum(l["esperado"] for l in linhas), 2),
-            "quantidade": len(negocios),
+            "quantidade": sum(l["quantidade"] for l in linhas),
         }
+
+    async def negocios_pagina(
+        self, tenant_id: UUID, status: Optional[str] = "aberto", corretor: Optional[str] = None, termo: Optional[str] = None,
+        etapa_id: Optional[str] = None, ordem: str = "recentes", deslocamento: int = 0, limite: int = 30,
+    ) -> Dict[str, Any]:
+        onde, params = self._filtro_negocios(tenant_id, status, corretor, termo, etapa_id)
+        ordenacao = "n.valor DESC, n.updated_at DESC, n.id" if ordem == "valor" else "n.updated_at DESC, n.id"
+        total = (await self._session.execute(
+            text(f"SELECT COUNT(*) FROM crm_negocios n JOIN crm_leads l ON l.id = n.lead_id WHERE {onde}"), params,
+        )).scalar() or 0
+        rows = await self._session.execute(
+            text(self._SELECT_NEGOCIO + f" WHERE {onde} ORDER BY {ordenacao} LIMIT :limite OFFSET :desloca"),
+            {**params, "limite": max(1, min(limite, 200)), "desloca": max(0, deslocamento)},
+        )
+        itens = []
+        for r in rows.fetchall():
+            n = _linha(r)
+            n["esperado"] = round(n["valor"] * n["probabilidade"] / 100, 2)
+            itens.append(n)
+        return {"itens": itens, "total": total}
+
+    async def funil(
+        self, tenant_id: UUID, status: Optional[str] = "aberto", corretor: Optional[str] = None, termo: Optional[str] = None,
+        ordem: str = "recentes", por_coluna: int = 30,
+    ) -> Dict[str, Any]:
+        """Quadro do funil: agregados por etapa + a primeira página de cada coluna."""
+        etapas = await self._agregado_etapas(tenant_id, status, corretor, termo)
+        for etapa in etapas:
+            pagina = await self.negocios_pagina(
+                tenant_id, status, corretor, termo, etapa["etapa_id"], ordem, 0, por_coluna,
+            ) if etapa["quantidade"] else {"itens": [], "total": 0}
+            etapa["negocios"] = pagina["itens"]
+        return {
+            "etapas": etapas,
+            "totais": {
+                "quantidade": sum(e["quantidade"] for e in etapas), "total": round(sum(e["total"] for e in etapas), 2),
+                "esperado": round(sum(e["esperado"] for e in etapas), 2), "travados": sum(e["travados"] for e in etapas),
+            },
+        }
+
+    async def garantir_negocios(
+        self, tenant_id: UUID, lead_ids: Optional[List[str]] = None, codigos_imoview: Optional[List[int]] = None,
+    ) -> int:
+        """Abre um negócio na primeira etapa para cada cliente que ainda não tem nenhum. Idempotente."""
+        etapas = await self.etapas(tenant_id)
+        if not etapas:
+            return 0
+        filtro, params = "", {"tid": str(tenant_id), "eid": etapas[0]["id"], "enome": etapas[0]["nome"]}
+        if lead_ids is not None:
+            filtro, params["ids"] = "AND l.id = ANY(CAST(:ids AS uuid[]))", [str(i) for i in lead_ids]
+        elif codigos_imoview is not None:
+            filtro, params["cods"] = "AND l.codigo_imoview = ANY(:cods)", list(codigos_imoview)
+        r = await self._session.execute(
+            text(f"""
+                WITH novos AS (
+                    INSERT INTO crm_negocios (tenant_id, corretor_id, lead_id, etapa_id, titulo, valor, automatico, created_at)
+                    SELECT l.tenant_id, l.corretor_id, l.id, :eid, LEFT(l.nome, 255), 0, TRUE, l.created_at
+                    FROM crm_leads l
+                    WHERE l.tenant_id = :tid AND l.status <> 'arquivado' {filtro}
+                      AND NOT EXISTS (SELECT 1 FROM crm_negocios n WHERE n.lead_id = l.id)
+                    RETURNING id
+                )
+                INSERT INTO crm_negocio_eventos (tenant_id, negocio_id, tipo, para, autor)
+                SELECT :tid, id, 'criado', :enome, 'scheduler' FROM novos
+            """),
+            params,
+        )
+        return r.rowcount or 0
+
+    async def ficha_cliente(self, tenant_id: UUID, lead_id: UUID) -> Optional[Dict[str, Any]]:
+        """Tudo sobre o cliente: cadastro, Imoview, perfil, negócios, atividades e histórico."""
+        row = await self._session.execute(
+            text("""SELECT l.*, c.nome AS corretor_nome FROM crm_leads l LEFT JOIN corretores c ON c.id = l.corretor_id
+                    WHERE l.id = :id AND l.tenant_id = :tid"""),
+            {"id": str(lead_id), "tid": str(tenant_id)},
+        )
+        r = row.first()
+        if not r:
+            return None
+        ficha = _linha(r)
+        ficha["negocios"] = await self._negocios_do_lead(tenant_id, lead_id)
+        ficha["atividades"] = [_linha(a) for a in (await self._session.execute(
+            text("""SELECT a.id, a.tipo, a.titulo, a.inicio, a.local, a.status, a.imovel_codigo, c.nome AS corretor_nome,
+                           (a.status = 'aberta' AND a.inicio IS NOT NULL AND a.inicio < NOW()) AS atrasada
+                    FROM crm_atividades a LEFT JOIN corretores c ON c.id = a.corretor_id
+                    WHERE a.tenant_id = :tid AND a.lead_id = :lid
+                    ORDER BY a.inicio DESC NULLS FIRST LIMIT 30"""),
+            {"tid": str(tenant_id), "lid": str(lead_id)},
+        )).fetchall()]
+        ficha["historico"] = [_linha(e) for e in (await self._session.execute(
+            text("""SELECT ev.tipo, ev.de, ev.para, ev.autor, ev.created_at, n.titulo
+                    FROM crm_negocio_eventos ev JOIN crm_negocios n ON n.id = ev.negocio_id
+                    WHERE ev.tenant_id = :tid AND n.lead_id = :lid ORDER BY ev.created_at DESC LIMIT 30"""),
+            {"tid": str(tenant_id), "lid": str(lead_id)},
+        )).fetchall()]
+        return ficha
+
+    async def _negocios_do_lead(self, tenant_id: UUID, lead_id: UUID) -> List[Dict[str, Any]]:
+        rows = await self._session.execute(
+            text(self._SELECT_NEGOCIO + " WHERE n.tenant_id = :tid AND n.lead_id = :lid ORDER BY n.created_at DESC"),
+            {"tid": str(tenant_id), "lid": str(lead_id)},
+        )
+        lista = []
+        for r in rows.fetchall():
+            n = _linha(r)
+            n["esperado"] = round(n["valor"] * n["probabilidade"] / 100, 2)
+            lista.append(n)
+        return lista
 
     # --- Agenda -----------------------------------------------------------
 

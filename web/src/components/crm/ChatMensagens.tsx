@@ -1,7 +1,8 @@
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { BedDouble, Car, Check, CheckCheck, Home, Loader2, Lock, Mic, Pause, Play, Ruler, Workflow, X } from "lucide-react";
+import { Check, CheckCheck, Loader2, Lock, Mic, Pause, Play, UserRound, Workflow, X } from "lucide-react";
+import CartaoImovelBase from "./imoveis/CartaoImovel";
 import { fetchApi } from "@/lib/api";
 
 export interface MensagemChat {
@@ -16,6 +17,8 @@ export interface MensagemChat {
   origem?: string | null;
   autor?: string | null;
   /** Como a IA respondeu; vem só na primeira mensagem de cada resposta do agente. */
+  /** Ficha enviada pela equipe como ação rápida (hoje só de lead). */
+  cartao?: { tipo: string; lead?: Record<string, unknown> } | null;
   processo?: { rota: string; modelo?: string | null; total_ms?: number | null; passos: Record<string, unknown>[] } | null;
 }
 
@@ -55,7 +58,7 @@ function montarItens(mensagens: MensagemChat[]): Item[] {
     // Fotos de imóveis enviadas em sequência viram um único cartão.
     if (m.direcao === "outbound" && m.tipo === "image") {
       const ultimo = itens[itens.length - 1];
-      if (ultimo && ultimo.tipo === "imoveis") ultimo.itens.push(m);
+      if (ultimo && ultimo.tipo === "imoveis" && ultimo.itens[0].origem === m.origem) ultimo.itens.push(m);
       else itens.push({ tipo: "imoveis", chave: `i-${m.id}`, itens: [m] });
       anterior = m;
       continue;
@@ -115,56 +118,45 @@ function parseImovel(legenda: string): ImovelParse {
 
 function CartaoImovel({ m, onAbrir }: { m: MensagemChat; onAbrir: (src: string) => void }) {
   const d = parseImovel(m.conteudo || "");
-  const [falhou, setFalhou] = useState(false);
-  const foto = m.midia && !falhou ? m.midia : null;
-
   return (
-    <article className="rounded-2xl overflow-hidden border border-[var(--line)] bg-[var(--card)] flex flex-col">
-      {foto ? (
-        <button type="button" onClick={() => onAbrir(foto)} className="relative block aspect-[4/3] w-full bg-[var(--card-2)] group" aria-label={`Ampliar foto: ${d.titulo}`}>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={foto}
-            alt={d.titulo}
-            loading="lazy"
-            referrerPolicy="no-referrer"
-            onError={() => setFalhou(true)}
-            className="absolute inset-0 w-full h-full object-cover transition-transform duration-300 group-hover:scale-[1.03]"
-          />
-          {d.preco && (
-            <span className="absolute left-2 bottom-2 px-2 py-0.5 rounded-lg bg-black/70 text-white text-xs font-semibold backdrop-blur-sm">
-              {d.preco}
-            </span>
-          )}
-        </button>
-      ) : (
-        <div className="relative aspect-[4/3] w-full bg-[var(--card-2)] flex items-center justify-center text-[var(--text-4)]">
-          <Home className="w-8 h-8" aria-hidden />
-          {d.preco && (
-            <span className="absolute left-2 bottom-2 px-2 py-0.5 rounded-lg bg-[var(--accent-soft)] text-[var(--accent-text)] text-xs font-semibold">
-              {d.preco}
-            </span>
-          )}
+    <CartaoImovelBase
+      foto={m.midia}
+      titulo={d.titulo}
+      preco={d.preco}
+      rotuloPreco={d.rotuloPreco}
+      codigo={d.codigo}
+      quartos={d.specs.quartos}
+      vagas={d.specs.vagas}
+      area={d.specs.area}
+      onFoto={onAbrir}
+    />
+  );
+}
+
+const ROTULO_TEMPERATURA: Record<string, string> = { quente: "Quente", morno: "Morno", frio: "Frio" };
+
+/** Ficha de cliente enviada pela equipe como ação rápida. */
+function CartaoLead({ m }: { m: MensagemChat }) {
+  const l = (m.cartao?.lead || {}) as Record<string, string | null>;
+  const linhas: [string, string | null | undefined][] = [
+    ["Telefone", l.telefone], ["E-mail", l.email], ["Procura", l.busca], ["Origem", l.origem],
+    ["Interesse", l.temperatura ? ROTULO_TEMPERATURA[l.temperatura] || l.temperatura : null],
+    ["Responsável", l.responsavel || "ainda sem corretor"], ["Último contato", l.ultimo_contato], ["Observações", l.observacoes],
+  ];
+  return (
+    <article className="rounded-2xl overflow-hidden border border-[var(--line-2)] w-full max-w-[22rem]" style={{ background: "color-mix(in srgb, var(--info) 8%, var(--card))" }}>
+      <header className="flex items-center gap-2.5 px-3.5 py-2.5" style={{ borderBottom: "1px solid var(--line)" }}>
+        <span className="w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ background: "var(--card-2)", color: "var(--text-2)" }}><UserRound className="w-4 h-4" aria-hidden /></span>
+        <div className="min-w-0">
+          <p className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--text-4)" }}>Ficha do cliente</p>
+          <h4 className="text-sm font-semibold truncate" style={{ color: "var(--text)" }}>{l.nome || "Cliente"}</h4>
         </div>
-      )}
-      <div className="p-3 space-y-2">
-        <h4 className="text-[13px] font-semibold leading-snug text-[var(--text)] line-clamp-2">{d.titulo}</h4>
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-[var(--text-3)]">
-          {d.specs.quartos && (
-            <span className="inline-flex items-center gap-1"><BedDouble className="w-3.5 h-3.5" aria-hidden />{d.specs.quartos}</span>
-          )}
-          {d.specs.vagas && (
-            <span className="inline-flex items-center gap-1"><Car className="w-3.5 h-3.5" aria-hidden />{d.specs.vagas}</span>
-          )}
-          {d.specs.area && (
-            <span className="inline-flex items-center gap-1"><Ruler className="w-3.5 h-3.5" aria-hidden />{d.specs.area} m²</span>
-          )}
-        </div>
-        <div className="flex items-center justify-between gap-2 text-[11px] text-[var(--text-4)]">
-          <span>{d.rotuloPreco}</span>
-          {d.codigo && <span className="font-mono">Cód. {d.codigo}</span>}
-        </div>
-      </div>
+      </header>
+      <dl className="px-3.5 py-2.5 space-y-1.5 text-[13px]">
+        {linhas.filter(([, v]) => v).map(([r, v]) => (
+          <div key={r} className="grid grid-cols-[6.2rem_1fr] gap-2"><dt style={{ color: "var(--text-3)" }}>{r}</dt><dd className="min-w-0 [overflow-wrap:anywhere]" style={{ color: "var(--text)" }}>{v}</dd></div>
+        ))}
+      </dl>
     </article>
   );
 }
@@ -453,7 +445,7 @@ export default function ChatMensagens({ mensagens, onProcesso }: { mensagens: Me
             <div key={it.chave} className="flex justify-end mt-3">
               <div className="w-full max-w-[min(94%,46rem)]">
                 <p className="px-1 pb-2 text-[11px] font-semibold" style={{ color: "var(--accent-text)" }}>
-                  Acessor · {it.itens.length} {it.itens.length === 1 ? "imóvel" : "imóveis"}
+                  {it.itens[0].origem === "humano" ? `Equipe · ${it.itens[0].autor || "portal"}` : "Acessor"} · {it.itens.length} {it.itens.length === 1 ? "imóvel" : "imóveis"}
                 </p>
                 <div className={`grid gap-3 ${it.itens.length === 1 ? "grid-cols-1 max-w-[16rem]" : "grid-cols-2 xl:grid-cols-3"}`}>
                   {it.itens.map((m) => (
@@ -466,6 +458,19 @@ export default function ChatMensagens({ mensagens, onProcesso }: { mensagens: Me
                     {hora(ultima.created_at)}
                     <CheckCheck className="w-3.5 h-3.5" style={{ color: "var(--accent)" }} aria-label="Enviadas" />
                   </span>
+                </div>
+              </div>
+            </div>
+          );
+        }
+        if (it.tipo === "msg" && it.m.cartao?.tipo === "lead") {
+          return (
+            <div key={it.chave} className="flex justify-end mt-3">
+              <div>
+                <p className="px-1 pb-2 text-[11px] font-semibold" style={{ color: "var(--info)" }}>Equipe · {it.m.autor || "portal"}</p>
+                <CartaoLead m={it.m} />
+                <div className="flex items-center justify-end gap-1 mt-2 px-1 text-[10px]" style={{ color: "var(--text-4)" }}>
+                  {hora(it.m.created_at)}<CheckCheck className="w-3.5 h-3.5" style={{ color: "var(--accent)" }} aria-label="Enviada" />
                 </div>
               </div>
             </div>

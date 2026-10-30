@@ -30,6 +30,8 @@ class Corretor:
         self.email = row.email
         self.status = row.status
         self.created_at = row.created_at
+        self.foto_ref = getattr(row, "foto_ref", None)
+        self.foto_atualizada_em = getattr(row, "foto_atualizada_em", None)
 
 
 class CorretorService:

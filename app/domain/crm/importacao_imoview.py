@@ -1,7 +1,8 @@
 """
 Importação dos leads do Imoview para a carteira de clientes do portal.
 
-- Só leads (relacionamento "lead"); CPF/CNPJ e demais dados cadastrais não são importados.
+- Só leads (relacionamento "lead"). Guarda o cadastro útil (contato, endereço, renda, perfil pessoal);
+  CPF/CNPJ, documentos e filiação não são importados (LGPD).
 - O Imoview não informa o corretor: o lead entra SEM responsável e o gestor atribui (ou a
   roleta distribui). A carteira de cada corretor no WhatsApp continua só com os dele.
 - Quem já existe pelo telefone (anotado antes por um corretor) é vinculado, não duplicado.
@@ -82,6 +83,57 @@ def _escolher_email(emails: Any) -> Optional[str]:
     return None
 
 
+_TEXTOS = {
+    "tipo": "tipo_pessoa", "sexo": "sexo", "estadocivil": "estado_civil", "datanascimento": "data_nascimento",
+    "naturalidade": "naturalidade", "nacionalidade": "nacionalidade", "profissao": "profissao", "cargo": "cargo",
+    "localtrabalho": "local_trabalho", "conjuge": "conjuge", "numerofilhos": "numero_filhos", "fantasia": "fantasia",
+    "datafundacao": "data_fundacao",
+}
+_VALORES = {"rendamensal": "renda_mensal", "rendamensalfamilia": "renda_familiar", "valorentrada": "valor_entrada", "fgts": "fgts"}
+_REDES = ("facebook", "linkedin", "instagram")
+
+
+def _limpo(item: Any, campos: Tuple[str, ...]) -> Optional[Dict[str, str]]:
+    if not isinstance(item, dict):
+        return None
+    saida = {c: " ".join(str(item.get(c) or "").split())[:200] for c in campos}
+    saida = {k: v for k, v in saida.items() if v}
+    return saida or None
+
+
+def dados_cadastrais(bruto: Dict[str, Any]) -> Dict[str, Any]:
+    """Cadastro do Imoview que vale mostrar na ficha. Sem CPF/CNPJ, documentos nem filiação."""
+    dados: Dict[str, Any] = {}
+    for origem, destino in _TEXTOS.items():
+        valor = " ".join(str(bruto.get(origem) or "").split())[:120]
+        if valor:
+            dados[destino] = valor
+    for origem, destino in _VALORES.items():
+        try:
+            valor = float(bruto.get(origem) or 0)
+        except (TypeError, ValueError):
+            valor = 0
+        if valor > 0:
+            dados[destino] = valor
+    redes = {r: str(bruto.get(r) or "").strip()[:200] for r in _REDES if str(bruto.get(r) or "").strip()}
+    if redes:
+        dados["redes"] = redes
+    for chave, campos in (("telefones", ("tipo", "numero")), ("emails", ("tipo", "email")),
+                          ("enderecos", ("tipo", "endereco", "bairro", "cidade", "estado", "cep"))):
+        itens = [i for i in (_limpo(x, campos) for x in (bruto.get(chave) or [])[:10]) if i]
+        if itens:
+            dados[chave] = itens
+    papeis: Dict[str, int] = {}
+    for item in bruto.get("relacionamentos") or []:
+        if isinstance(item, dict):
+            for nome, qtd in item.items():
+                if isinstance(qtd, (int, float)) and qtd > 0:
+                    papeis[str(nome)] = int(qtd)
+    if papeis:
+        dados["relacionamentos"] = papeis
+    return dados
+
+
 def normalizar_lead(bruto: Dict[str, Any], agora: Optional[datetime] = None) -> Optional[Dict[str, Any]]:
     """Registro do Imoview -> linha de crm_leads. None se não houver código ou nome."""
     codigo = inteiro(bruto.get("codigo"))
@@ -98,6 +150,7 @@ def normalizar_lead(bruto: Dict[str, Any], agora: Optional[datetime] = None) -> 
         "codigo": codigo, "nome": nome, "telefone": telefone, "busca": telefone_busca(telefone),
         "email": _escolher_email(bruto.get("emails")), "incluido": incluido, "alterado": alterado,
         "temperatura": "frio" if frio else "morno",
+        "dados": dados_cadastrais(bruto),
     }
 
 
@@ -218,16 +271,18 @@ async def processar_pedidos() -> int:
 _UPSERT = text("""
     INSERT INTO crm_leads (
         tenant_id, corretor_id, nome, telefone, telefone_busca, email, origem, temperatura, status, perfil,
-        codigo_imoview, imoview_incluido_em, importado_em, created_at, updated_at
+        codigo_imoview, imoview_incluido_em, importado_em, created_at, updated_at, dados_imoview, imoview_alterado_em
     ) VALUES (
         :tid, NULL, :nome, :telefone, :busca, :email, 'imoview', :temperatura, 'lead', '{}',
-        :codigo, :incluido, NOW(), COALESCE(:incluido, NOW()), COALESCE(:alterado, NOW())
+        :codigo, :incluido, NOW(), COALESCE(:incluido, NOW()), COALESCE(:alterado, NOW()), CAST(:dados AS jsonb), :alterado
     )
     ON CONFLICT (tenant_id, codigo_imoview) WHERE codigo_imoview IS NOT NULL DO UPDATE SET
         nome = EXCLUDED.nome, telefone = EXCLUDED.telefone, telefone_busca = EXCLUDED.telefone_busca,
-        email = EXCLUDED.email, imoview_incluido_em = EXCLUDED.imoview_incluido_em, updated_at = EXCLUDED.updated_at
+        email = EXCLUDED.email, imoview_incluido_em = EXCLUDED.imoview_incluido_em, updated_at = EXCLUDED.updated_at,
+        dados_imoview = EXCLUDED.dados_imoview, imoview_alterado_em = EXCLUDED.imoview_alterado_em
     WHERE crm_leads.origem = 'imoview'
-      AND (crm_leads.nome, crm_leads.telefone, crm_leads.email) IS DISTINCT FROM (EXCLUDED.nome, EXCLUDED.telefone, EXCLUDED.email)
+      AND (crm_leads.nome, crm_leads.telefone, crm_leads.email, crm_leads.dados_imoview)
+          IS DISTINCT FROM (EXCLUDED.nome, EXCLUDED.telefone, EXCLUDED.email, EXCLUDED.dados_imoview)
 """)
 
 
@@ -260,8 +315,10 @@ async def gravar_pagina(tenant_id: UUID, leads: List[Dict[str, Any]]) -> Dict[st
             if alvo:
                 await s.execute(
                     text("""UPDATE crm_leads SET codigo_imoview = :cod, imoview_incluido_em = :inc,
-                                   email = COALESCE(email, :email), updated_at = NOW() WHERE id = :id"""),
-                    {"cod": l["codigo"], "inc": l["incluido"], "email": l["email"], "id": alvo},
+                                   email = COALESCE(email, :email), updated_at = NOW(),
+                                   dados_imoview = CAST(:dados AS jsonb), imoview_alterado_em = :alt WHERE id = :id"""),
+                    {"cod": l["codigo"], "inc": l["incluido"], "email": l["email"], "id": alvo,
+                     "dados": json.dumps(l["dados"]), "alt": l["alterado"]},
                 )
                 usados.add(l["busca"])
                 vinculados += 1
@@ -270,9 +327,21 @@ async def gravar_pagina(tenant_id: UUID, leads: List[Dict[str, Any]]) -> Dict[st
         if gravar:
             await s.execute(_UPSERT, [
                 {"tid": tid, "nome": l["nome"], "telefone": l["telefone"], "busca": l["busca"], "email": l["email"],
-                 "temperatura": l["temperatura"], "codigo": l["codigo"], "incluido": l["incluido"], "alterado": l["alterado"]}
+                 "temperatura": l["temperatura"], "codigo": l["codigo"], "incluido": l["incluido"], "alterado": l["alterado"],
+                 "dados": json.dumps(l["dados"])}
                 for l in gravar
             ])
+        # Clientes que o corretor anotou antes (origem não é Imoview) não passam pelo upsert: atualiza só o cadastro.
+        for l in (x for x in leads if x["codigo"] in ja):
+            await s.execute(
+                text("""UPDATE crm_leads SET dados_imoview = CAST(:dados AS jsonb), imoview_alterado_em = :alt
+                        WHERE tenant_id = :tid AND codigo_imoview = :cod AND origem <> 'imoview'
+                          AND dados_imoview IS DISTINCT FROM CAST(:dados AS jsonb)"""),
+                {"dados": json.dumps(l["dados"]), "alt": l["alterado"], "tid": tid, "cod": l["codigo"]},
+            )
+        # Todo cliente novo entra no funil, na primeira etapa.
+        from app.domain.crm.service import CrmService
+        await CrmService(s).garantir_negocios(tenant_id, codigos_imoview=[l["codigo"] for l in leads])
     return {"novos": len(gravar) - len(ja), "atualizados": len(ja), "vinculados": vinculados}
 
 

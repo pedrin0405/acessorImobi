@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.domain.configuracoes import padroes
 from app.domain.configuracoes.padroes import ConfigErro
+from app.domain.corretor.foto import url_da_foto as foto_url
 from app.shared.security import hash_password, mask_phone, verify_password
 
 log = structlog.get_logger()
@@ -210,12 +211,12 @@ class ConfiguracoesService:
             for i, r in enumerate(rows)
         ]
         corretores = (await self._s.execute(
-            text("SELECT id, nome, telefone, status, created_at FROM corretores WHERE tenant_id = :tid ORDER BY created_at"),
+            text("SELECT id, nome, telefone, status, created_at, foto_ref, foto_atualizada_em FROM corretores WHERE tenant_id = :tid ORDER BY created_at"),
             {"tid": self._tid},
         )).fetchall()
         return {
             "admins": admins,
-            "corretores": [{"id": str(c.id), "nome": c.nome, "telefone_mascarado": mask_phone(c.telefone), "status": c.status, "desde": c.created_at.isoformat()} for c in corretores],
+            "corretores": [{"id": str(c.id), "nome": c.nome, "telefone_mascarado": mask_phone(c.telefone), "status": c.status, "desde": c.created_at.isoformat(), "foto_url": foto_url(c.id, c.foto_ref, c.foto_atualizada_em)} for c in corretores],
         }
 
     async def criar_admin(self, nome: str, email: str) -> Dict[str, Any]:

@@ -254,6 +254,29 @@ class EvolutionClient:
                 raise RuntimeError(f"Falha ao criar instância: {resp.status_code}")
             return resp.json()
 
+    async def fetch_profile_picture_url(self, instance_id: str, number: str) -> Optional[str]:
+        """
+        POST /chat/fetchProfilePictureUrl/{instance}
+        URL (temporária) da foto de perfil de um número. None se o número não tem foto
+        ou a esconde por privacidade; nunca levanta erro.
+        """
+        url = f"{self.base_url}/chat/fetchProfilePictureUrl/{instance_id}"
+        try:
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                resp = await client.post(url, headers=self._headers(), json={"number": number})
+        except httpx.HTTPError as e:
+            log.debug("evolution_foto_perfil_erro_rede", error=str(e)[:200])
+            return None
+        if resp.status_code not in (200, 201):
+            log.debug("evolution_foto_perfil_falhou", status=resp.status_code)
+            return None
+        try:
+            dados = resp.json() or {}
+        except ValueError:
+            return None
+        link = dados.get("profilePictureUrl") or dados.get("profilePicUrl") or dados.get("picture")
+        return link if isinstance(link, str) and link.startswith("http") else None
+
     async def get_instance_status(self, instance_id: str) -> Dict[str, Any]:
         """
         GET /instance/connectionState/{instance}

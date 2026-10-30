@@ -145,6 +145,18 @@ async def job_health_check_whatsapp():
             pass
 
 
+async def job_fotos_corretores():
+    """Mantém a foto dos corretores igual à do perfil do WhatsApp (revisa cada um a cada 24 h)."""
+    from app.domain.corretor.foto import sincronizar_pendentes
+
+    try:
+        n = await sincronizar_pendentes()
+        if n:
+            log.info("fotos_corretores_atualizadas", total=n)
+    except Exception as e:  # noqa: BLE001
+        log.warning("job_fotos_corretores_falhou", erro=str(e)[:200])
+
+
 async def job_lembretes_atividades():
     """Lembra o corretor dos compromissos conforme as regras da imobiliária (Configurações → Lembretes)."""
     from datetime import time as hora_do_dia
@@ -355,6 +367,7 @@ def main():
     scheduler.add_job(job_briefing_diario, "interval", minutes=15)
     scheduler.add_job(job_despachar_analises, "interval", minutes=1)
     scheduler.add_job(job_importar_historico_atendimentos, "interval", minutes=2, next_run_time=datetime.now())
+    scheduler.add_job(job_fotos_corretores, "interval", minutes=30, max_instances=1, coalesce=True, next_run_time=datetime.now() + timedelta(seconds=90))
     scheduler.add_job(job_backfill_memoria, "interval", minutes=3, max_instances=1, coalesce=True)
 
     scheduler.start()
