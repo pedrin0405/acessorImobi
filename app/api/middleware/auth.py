@@ -80,11 +80,39 @@ async def require_admin(
     if not tenant_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
 
+    admin_id = UUID(payload.get("aid", "00000000-0000-0000-0000-000000000000"))
+    if role == "admin" and payload.get("aid"):
+        await _checar_sessao_admin(UUID(tenant_id), admin_id, payload)
+
     return AdminPrincipal(
         sub=payload["sub"],
         tenant_id=UUID(tenant_id),
-        admin_id=UUID(payload.get("aid", "00000000-0000-0000-0000-000000000000")),
+        admin_id=admin_id,
     )
+
+
+async def _checar_sessao_admin(tenant_id: UUID, admin_id: UUID, payload: dict) -> None:
+    """Recusa o token de um admin desativado ou emitido antes da última troca de senha."""
+    from sqlalchemy import text
+
+    from app.shared.database import get_session
+
+    async with get_session(tenant_id) as session:
+        row = (await session.execute(
+            text("SELECT ativo, tokens_validos_apos FROM tenant_admins WHERE id = :id AND tenant_id = :tid"),
+            {"id": str(admin_id), "tid": str(tenant_id)},
+        )).first()
+    invalido = row is None or not row.ativo
+    if row is not None and row.tokens_validos_apos is not None:
+        emitido = payload.get("iat")
+        # Token sem hora de emissão é anterior a esta regra: não vale depois de uma troca de senha.
+        invalido = invalido or emitido is None or float(emitido) < row.tokens_validos_apos.timestamp() - 1
+    if invalido:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Sessão encerrada. Entre novamente.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
 
 async def require_corretor(

@@ -73,3 +73,21 @@ def texto_lembrete(atividade: Dict[str, Any], fuso: ZoneInfo) -> str:
 def dentro_da_janela(agora_local: datetime, inicio: time, fim: time) -> bool:
     """Horário comercial do tenant (ex.: 08:00–20:00)."""
     return inicio <= agora_local.time() < fim
+
+
+def texto_lembrete_regra(
+    regra: Dict[str, Any], atividade: Dict[str, Any], fuso: ZoneInfo,
+    corretor_nome: Optional[str], cliente_nome: Optional[str], tipos_config: Optional[list] = None,
+) -> str:
+    """Lembrete escrito pela regra da imobiliária (Configurações → Lembretes da agenda)."""
+    from app.domain.configuracoes.padroes import renderizar_lembrete
+
+    chave = atividade.get("tipo") or "tarefa"
+    rotulo = ROTULO_TIPO.get(chave) or next((t["nome"] for t in (tipos_config or []) if t.get("chave") == chave), "Compromisso")
+    quando = datetime.fromisoformat(atividade["inicio"]).astimezone(fuso)
+    return renderizar_lembrete(regra, {
+        "corretor.primeiro_nome": (corretor_nome or "").split()[0] if corretor_nome else "",
+        "cliente": cliente_nome or "", "titulo": atividade.get("titulo") or rotulo, "tipo": rotulo,
+        "tipo_minusculo": rotulo.lower(), "data": f"{quando:%d/%m}", "hora": f"{quando:%H:%M}",
+        "local": atividade.get("local") or "",
+    })

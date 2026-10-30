@@ -577,6 +577,31 @@ class CrmService:
 
     # --- Agenda -----------------------------------------------------------
 
+    async def _config_agenda(self, tenant_id: UUID) -> Dict[str, Any]:
+        """Tipos personalizados e regras de lembrete da imobiliária (Configurações)."""
+        from app.domain.configuracoes.padroes import lembretes_padrao
+
+        row = await self._session.execute(text("SELECT dados FROM tenants WHERE id = :tid"), {"tid": str(tenant_id)})
+        dados = (row.scalar() or {}) if row else {}
+        regras = dados.get("lembretes")
+        return {
+            "tipos": [t for t in (dados.get("tipos_atividade") or []) if not t.get("sistema")],
+            "regras": regras if isinstance(regras, list) else lembretes_padrao(),
+        }
+
+    @staticmethod
+    def _lembrete_pelas_regras(regras: List[Dict[str, Any]], tipo: str, inicio: Optional[datetime]) -> int:
+        """Maior antecedência das regras ligadas que ainda cabe antes do compromisso (0 = sem lembrete)."""
+        from app.domain.configuracoes.padroes import antecedencias_para
+
+        if not inicio:
+            return 0
+        if inicio.tzinfo is None:
+            inicio = inicio.replace(tzinfo=timezone.utc)
+        faltam = (inicio - datetime.now(timezone.utc)).total_seconds() / 60
+        cabem = [m for m in antecedencias_para(regras, tipo) if m <= faltam]
+        return cabem[0] if cabem else 0
+
     async def agendar(
         self,
         tenant_id: UUID,
@@ -589,11 +614,18 @@ class CrmService:
         negocio_id: Optional[UUID] = None,
         local: Optional[str] = None,
         imovel_codigo: Optional[int] = None,
-        lembrete_min: int = 60,
+        lembrete_min: Optional[int] = None,
     ) -> Dict[str, Any]:
+        config = await self._config_agenda(tenant_id)
+        rotulo = ROTULO_TIPO.get(tipo)
         if tipo not in TIPOS_ATIVIDADE:
-            raise CrmError(f"Tipo de atividade inválido: {tipo}.")
-        titulo = (titulo or "").strip() or ROTULO_TIPO[tipo]
+            personalizado = next((t for t in config["tipos"] if t.get("chave") == tipo), None)
+            if not personalizado:
+                raise CrmError(f"Tipo de atividade inválido: {tipo}.")
+            rotulo = personalizado["nome"]
+        titulo = (titulo or "").strip() or rotulo or "Atividade"
+        if lembrete_min is None:
+            lembrete_min = self._lembrete_pelas_regras(config["regras"], tipo, inicio)
         row = await self._session.execute(
             text("""
                 INSERT INTO crm_atividades (

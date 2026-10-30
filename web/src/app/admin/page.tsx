@@ -110,8 +110,6 @@ export default function AdminPage() {
   const [nome, setNome] = useState("");
   const [slug, setSlug] = useState("");
   const [numeroWhatsapp, setNumeroWhatsapp] = useState("");
-  const [imoviewUrl, setImoviewUrl] = useState("https://api.imoview.com.br");
-  const [imoviewChave, setImoviewChave] = useState("");
   const [ollamaModel, setOllamaModel] = useState("llama3.1:8b-instruct-q4_K_M");
   const [adminEmail, setAdminEmail] = useState("");
   const [adminSenha, setAdminSenha] = useState("");
@@ -181,8 +179,6 @@ export default function AdminPage() {
           nome,
           slug,
           numero_whatsapp: numeroWhatsapp,
-          imoview_base_url: imoviewUrl,
-          imoview_chave: imoviewChave,
           ollama_model: ollamaModel,
           admin_email: adminEmail || undefined,
           admin_senha: adminSenha || undefined,
@@ -195,7 +191,6 @@ export default function AdminPage() {
         setNome("");
         setSlug("");
         setNumeroWhatsapp("");
-        setImoviewChave("");
         setAdminEmail("");
         setAdminSenha("");
         setAdminNome("");
@@ -550,28 +545,10 @@ export default function AdminPage() {
                 />
               </div>
 
-              <div>
-                <label className="block text-xs font-medium text-slate-400 mb-1">URL API Imoview</label>
-                <input
-                  type="text"
-                  required
-                  value={imoviewUrl}
-                  onChange={(e) => setImoviewUrl(e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white text-sm focus:outline-none focus:border-sky-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-medium text-slate-400 mb-1">Chave de Acesso Imoview (API Key)</label>
-                <input
-                  type="password"
-                  required
-                  placeholder="Chave enviada pela Universal Software"
-                  value={imoviewChave}
-                  onChange={(e) => setImoviewChave(e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white text-sm focus:outline-none focus:border-sky-500"
-                />
-              </div>
+              <p className="text-xs text-slate-500 leading-relaxed">
+                A integração com o Imoview (endereço e chave da API) é configurada pela própria imobiliária no portal
+                dela, em Configurações &rsaquo; Integrações.
+              </p>
 
               <div className="border-t border-slate-700 pt-4 space-y-4">
                 <p className="text-xs font-semibold text-slate-300">Administrador inicial da imobiliária</p>

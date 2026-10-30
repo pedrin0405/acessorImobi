@@ -19,8 +19,10 @@ import structlog
 from sqlalchemy.sql import text
 
 from app.domain.cliente.service import ClienteService
+from app.domain.conversa.memoria import job_backfill_memoria
 from app.integration.imoview.client import ImoviewClient
 from app.integration.whatsapp.evolution import EvolutionClient
+from app.domain.imovel.sync import processar_pedidos, sincronizar_tenant
 from app.shared.config import get_settings
 from app.shared.database import get_admin_session, get_session
 from app.shared.security import decrypt_credentials
@@ -29,134 +31,14 @@ log = structlog.get_logger()
 settings = get_settings()
 
 
-async def sync_imoveis_por_tenant(tenant_id: UUID, imoview_creds: bytes):
-    """Sincroniza imóveis disponíveis do Imoview para a tabela imoveis_cache."""
-    try:
-        creds = json.loads(decrypt_credentials(imoview_creds))
-        client = ImoviewClient(
-            base_url=creds.get("base_url", "https://api.imoview.com.br"),
-            chave=creds.get("chave", ""),
-        )
+async def sync_imoveis_por_tenant(tenant_id: UUID, imoview_creds: bytes = b""):
+    """Sincroniza os imóveis do Imoview com o cache (lógica em app/domain/imovel/sync.py)."""
+    await sincronizar_tenant(tenant_id, origem="agendada")
 
-        # Sincroniza aluguel (finalidade=1) e venda (finalidade=2)
-        # A API aceita no máximo 20 registros por página; acima disso retorna 404.
-        REGISTROS_POR_PAGINA = 20
-        MAX_PAGINAS = 100
 
-        total_synced = 0
-        for finalidade_codigo, finalidade_nome in [(1, "aluguel"), (2, "venda")]:
-            pagina = 1
-            quantidade_total = 0
-            while pagina <= MAX_PAGINAS:
-                resp = await client.buscar_imoveis(
-                    finalidade=finalidade_codigo,
-                    pagina=pagina,
-                    registros=REGISTROS_POR_PAGINA,
-                )
-                lista = resp.get("lista", []) if isinstance(resp, dict) else []
-                if not lista:
-                    if pagina == 1:
-                        log.warning(
-                            "sync_imoveis_sem_dados",
-                            tenant_id=str(tenant_id)[:8],
-                            finalidade=finalidade_nome,
-                            resposta=str(resp)[:200],
-                        )
-                    break
-
-                if pagina == 1:
-                    quantidade_total = int(resp.get("quantidade") or 0)
-
-                async with get_session(tenant_id) as session:
-                    for im in lista:
-                        codigo = im.get("codigo")
-                        if not codigo:
-                            continue
-
-                        # Converte valor numérico
-                        valor_raw = im.get("valor", "0")
-                        try:
-                            # Trata formatação "1.500,00"
-                            valor_clean = str(valor_raw).replace(".", "").replace(",", ".").replace("R$", "").strip()
-                            valor_float = float(valor_clean) if valor_clean else None
-                        except Exception:
-                            valor_float = None
-
-                        area_raw = im.get("areaprincipal") or im.get("areainterna")
-                        try:
-                            area_float = float(str(area_raw).replace(",", ".")) if area_raw else None
-                        except Exception:
-                            area_float = None
-
-                        quartos_raw = im.get("numeroquartos")
-                        quartos_int = int(quartos_raw) if quartos_raw and str(quartos_raw).isdigit() else None
-
-                        vagas_raw = im.get("numerovagas")
-                        vagas_int = int(vagas_raw) if vagas_raw and str(vagas_raw).isdigit() else None
-
-                        # Foto principal para envio pelo WhatsApp (CDN público do Imoview)
-                        foto_url = im.get("urlfotoprincipal") or ""
-                        if not foto_url:
-                            fotos = im.get("fotos") or []
-                            if fotos and isinstance(fotos[0], dict):
-                                foto_url = fotos[0].get("url") or ""
-                        dados_extras = json.dumps({"foto_url": foto_url} if foto_url else {})
-
-                        upsert_query = text("""
-                            INSERT INTO imoveis_cache (
-                                tenant_id, codigo_imoview, finalidade, tipo, bairro, cidade,
-                                area_m2, quartos, vagas, valor, situacao, link_anuncio,
-                                dados_extras, synced_at
-                            ) VALUES (
-                                :tid, :cod, :fin, :tipo, :bairro, :cid,
-                                :area, :quartos, :vagas, :valor, :sit, :link,
-                                CAST(:extras AS jsonb), NOW()
-                            )
-                            ON CONFLICT (tenant_id, codigo_imoview) DO UPDATE SET
-                                finalidade = EXCLUDED.finalidade,
-                                tipo = EXCLUDED.tipo,
-                                bairro = EXCLUDED.bairro,
-                                cidade = EXCLUDED.cidade,
-                                area_m2 = EXCLUDED.area_m2,
-                                quartos = EXCLUDED.quartos,
-                                vagas = EXCLUDED.vagas,
-                                valor = EXCLUDED.valor,
-                                situacao = EXCLUDED.situacao,
-                                link_anuncio = EXCLUDED.link_anuncio,
-                                dados_extras = EXCLUDED.dados_extras,
-                                synced_at = NOW()
-                        """)
-
-                        await session.execute(upsert_query, {
-                            "tid": str(tenant_id),
-                            "cod": codigo,
-                            "fin": finalidade_nome,
-                            "tipo": im.get("tipo", "Imóvel"),
-                            "bairro": im.get("bairro"),
-                            "cid": im.get("cidade"),
-                            "area": area_float,
-                            "quartos": quartos_int,
-                            "vagas": vagas_int,
-                            "valor": valor_float,
-                            "sit": im.get("situacao"),
-                            "link": im.get("urlpublica"),
-                            "extras": dados_extras,
-                        })
-
-                total_synced += len(lista)
-                if quantidade_total and pagina * REGISTROS_POR_PAGINA >= quantidade_total:
-                    break
-                pagina += 1
-
-        log.info(
-            "sync_imoveis_concluido",
-            tenant_id=str(tenant_id)[:8],
-            total=total_synced,
-            quantidade=quantidade_total,
-        )
-
-    except Exception as e:
-        log.error("sync_imoveis_falha", tenant_id=str(tenant_id)[:8], error=str(e))
+async def job_sync_pedidos():
+    """Atende, em poucos segundos, as sincronizações pedidas pelo portal ("Sincronizar agora")."""
+    await processar_pedidos()
 
 
 async def job_sync_imoveis():
@@ -261,16 +143,20 @@ async def job_health_check_whatsapp():
 
 
 async def job_lembretes_atividades():
-    """Lembra o corretor dos compromissos (padrão 60 min antes), só no horário comercial."""
-    from app.domain.crm.mensagens import dentro_da_janela, texto_lembrete
+    """Lembra o corretor dos compromissos conforme as regras da imobiliária (Configurações → Lembretes)."""
+    from datetime import time as hora_do_dia
+
+    from app.domain.configuracoes.padroes import lembretes_padrao, regra_do_lembrete
+    from app.domain.crm.mensagens import dentro_da_janela, texto_lembrete, texto_lembrete_regra
     from app.worker.pipeline import _enviar_resposta
 
     async with get_admin_session() as session:
         rows = await session.execute(
             text("""
-                SELECT a.id, a.tenant_id, a.titulo, a.tipo, a.inicio, a.local, a.imovel_codigo,
-                       c.id AS corretor_id, c.telefone,
-                       t.fuso, t.horario_inicio, t.horario_fim
+                SELECT a.id, a.tenant_id, a.titulo, a.tipo, a.inicio, a.local, a.imovel_codigo, a.lembrete_min,
+                       c.id AS corretor_id, c.telefone, c.nome AS corretor_nome,
+                       (SELECT l.nome FROM crm_leads l WHERE l.id = a.lead_id) AS cliente_nome,
+                       t.fuso, t.horario_inicio, t.horario_fim, t.dados
                 FROM crm_atividades a
                 JOIN corretores c ON c.id = a.corretor_id AND c.status = 'active'
                 JOIN tenants t ON t.id = a.tenant_id AND t.status = 'active'
@@ -286,20 +172,32 @@ async def job_lembretes_atividades():
 
     for a in pendentes:
         fuso = ZoneInfo(a.fuso or settings.usage_timezone)
-        # Fora do horário comercial o lembrete espera a janela abrir; se o
-        # compromisso começar antes disso, não é mandado de madrugada.
-        if not dentro_da_janela(datetime.now(fuso), a.horario_inicio, a.horario_fim):
+        dados = a.dados if isinstance(a.dados, dict) else {}
+        regras = dados.get("lembretes") if isinstance(dados.get("lembretes"), list) else lembretes_padrao()
+        regra = regra_do_lembrete(regras, a.tipo, a.lembrete_min)
+        # Fora da janela de envio o lembrete espera ela abrir; se o compromisso
+        # começar antes disso, não é mandado de madrugada. A regra define a janela;
+        # sem regra (ex.: atividade antiga), vale o horário comercial da imobiliária.
+        inicio_janela, fim_janela = a.horario_inicio, a.horario_fim
+        if regra:
+            inicio_janela = hora_do_dia.fromisoformat(regra["janela_inicio"])
+            fim_janela = hora_do_dia.fromisoformat(regra["janela_fim"])
+        if not dentro_da_janela(datetime.now(fuso), inicio_janela, fim_janela):
             continue
         atividade = {
             "titulo": a.titulo, "tipo": a.tipo, "inicio": a.inicio.isoformat(),
             "local": a.local, "imovel_codigo": a.imovel_codigo,
         }
+        texto = (
+            texto_lembrete_regra(regra, atividade, fuso, a.corretor_nome, a.cliente_nome, dados.get("tipos_atividade"))
+            if regra else texto_lembrete(atividade, fuso)
+        )
         try:
             async with get_session(a.tenant_id) as session:
                 await _enviar_resposta(
                     tenant_id=a.tenant_id,
                     corretor=SimpleNamespace(id=a.corretor_id, telefone=a.telefone),
-                    texto=texto_lembrete(atividade, fuso),
+                    texto=texto,
                     session=session,
                 )
                 await session.execute(
@@ -441,6 +339,7 @@ def main():
         # Executa no boot: senão o cache fica vazio até o primeiro intervalo.
         next_run_time=datetime.now(),
     )
+    scheduler.add_job(job_sync_pedidos, "interval", seconds=10, max_instances=1, coalesce=True)
     scheduler.add_job(job_retry_pendencias, "interval", minutes=5)
     scheduler.add_job(job_health_check_whatsapp, "interval", minutes=2)
     scheduler.add_job(job_expurgo_lgpd, "cron", hour=3, minute=0)
@@ -448,6 +347,7 @@ def main():
     scheduler.add_job(job_briefing_diario, "interval", minutes=15)
     scheduler.add_job(job_despachar_analises, "interval", minutes=1)
     scheduler.add_job(job_importar_historico_atendimentos, "interval", minutes=2, next_run_time=datetime.now())
+    scheduler.add_job(job_backfill_memoria, "interval", minutes=3, max_instances=1, coalesce=True)
 
     scheduler.start()
 

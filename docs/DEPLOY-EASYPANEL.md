@@ -62,3 +62,32 @@ Confira `https://api.<BASE_DOMAIN>/health` e entre em `admin.<BASE_DOMAIN>`.
   na VPS o áudio sai pelo Gemini TTS (limite diário do plano) ou em texto.
 - **Whisper** roda em CPU: prefira `small` e uma VPS com 4+ GB de RAM livres.
 - **Ollama** fica desligado; ative com `COMPOSE_PROFILES=ollama` só se precisar.
+
+## Atualizando uma instalação existente
+
+Sempre nesta ordem, para o código novo não pedir coluna que ainda não existe:
+
+1. No EasyPanel, **Implantar** (reconstrói `api`, `worker`, `scheduler` e `web`).
+2. Logo depois, no terminal da VPS, aplique as migrações (todas são idempotentes):
+   ```bash
+   docker exec backend_quadra_acessor-imobi-api-1 alembic upgrade head
+   ```
+3. Recarregue o portal com Ctrl+Shift+R.
+
+O que cada migração recente cria: `007` mídia das mensagens, `008` conversas do assistente,
+`009` notas internas, `010` memória das conversas (pgvector), `011` integração e status do Imoview,
+`012` configurações da imobiliária (dados, listas, localidades, tipos de atividade, roleta, lembretes).
+
+## O que depende do Gemini
+
+Com `LLM_PROVIDER=gemini` e `GEMINI_API_KEY` preenchida funcionam: o agente do WhatsApp, o assistente
+do Início, o resumo das conversas e a **memória de longo prazo** (embeddings `gemini-embedding-001`).
+Sem a chave, o agente cai nas respostas por regras e a memória fica desligada (a conversa segue só com
+as mensagens recentes). Variáveis opcionais da memória: `MEMORIA_ATIVA`, `MEMORIA_K`, `MEMORIA_LIMIAR`,
+`MEMORIA_TIMEOUT_S`, `MEMORIA_RESUMO_A_CADA`.
+
+## Imoview
+
+A URL base e a chave do Imoview **não** são mais pedidas ao criar a imobiliária no painel do
+desenvolvedor: a própria imobiliária configura em **Configurações → Integrações** e pode testar a conexão
+e sincronizar na hora. A sincronização automática continua a cada `IMOVIEW_SYNC_INTERVAL_MINUTES`.

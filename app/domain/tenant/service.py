@@ -42,8 +42,8 @@ class TenantService:
         nome: str,
         slug: str,
         numero_whatsapp: str,
-        imoview_base_url: str,
-        imoview_chave: str,
+        imoview_base_url: Optional[str] = None,
+        imoview_chave: Optional[str] = None,
         ollama_model: Optional[str] = "qwen3:8b",
         criado_por: Optional[str] = None,
         admin_email: Optional[str] = None,
@@ -65,12 +65,13 @@ class TenantService:
         # 2. Normaliza número de telefone do agente
         tel_normalizado = normalize_phone(numero_whatsapp)
 
-        # 3. Cifra credenciais do Imoview
-        creds_dict = {
-            "base_url": imoview_base_url.rstrip("/"),
-            "chave": imoview_chave,
-        }
-        creds_cifradas = encrypt_credentials(json.dumps(creds_dict))
+        # 3. Cifra credenciais do Imoview, se informadas (a imobiliária pode configurá-las depois no portal)
+        creds_cifradas = None
+        if imoview_base_url and imoview_chave:
+            creds_cifradas = encrypt_credentials(json.dumps({
+                "base_url": imoview_base_url.rstrip("/"),
+                "chave": imoview_chave,
+            }))
 
         # 4. Insere Tenant
         query_tenant = text("""

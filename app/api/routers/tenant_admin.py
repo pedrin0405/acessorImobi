@@ -61,6 +61,11 @@ class ConfigurarAgenteRequest(BaseModel):
     memorias: Optional[List[str]] = None
     confirmar_acoes: Optional[bool] = None
     voz: Optional[str] = None
+    # Frequência do áudio: 'nunca', 'aleatorio' (chance %), 'a_cada' (N respostas de texto) ou 'sempre'.
+    audio_frequencia: Optional[str] = None
+    audio_chance: Optional[int] = None
+    audio_a_cada: Optional[int] = None
+    audio_responder_audio: Optional[bool] = None
 
     @field_validator("tom")
     @classmethod
@@ -68,6 +73,27 @@ class ConfigurarAgenteRequest(BaseModel):
         if v and v not in TONS:
             raise ValueError(f"Tom inválido. Opções: {', '.join(TONS)}.")
         return v or None
+
+    @field_validator("audio_frequencia")
+    @classmethod
+    def frequencia_valida(cls, v: Optional[str]) -> Optional[str]:
+        if v and v not in ("nunca", "aleatorio", "a_cada", "sempre"):
+            raise ValueError("Frequência de áudio inválida.")
+        return v or None
+
+    @field_validator("audio_chance")
+    @classmethod
+    def chance_valida(cls, v: Optional[int]) -> Optional[int]:
+        if v is not None and not 0 <= v <= 100:
+            raise ValueError("A chance de áudio deve ficar entre 0 e 100.")
+        return v
+
+    @field_validator("audio_a_cada")
+    @classmethod
+    def a_cada_valido(cls, v: Optional[int]) -> Optional[int]:
+        if v is not None and not 2 <= v <= 20:
+            raise ValueError("O intervalo de áudio deve ficar entre 2 e 20 respostas.")
+        return v
 
     @field_validator("voz")
     @classmethod
@@ -123,6 +149,10 @@ class ConfiguracaoAgenteResponse(BaseModel):
     memorias: List[str] = []
     confirmar_acoes: bool = True
     voz: str = VOZ_PADRAO
+    audio_frequencia: str = "aleatorio"
+    audio_chance: int = 20
+    audio_a_cada: int = 5
+    audio_responder_audio: bool = True
 
 
 class ConectarWhatsAppRequest(BaseModel):
@@ -468,6 +498,10 @@ async def obter_configuracao_agente(admin=Depends(require_admin)):
         memorias=config.get("memorias") or [],
         confirmar_acoes=config.get("confirmar_acoes", True) is not False,
         voz=resolver_voz(config.get("voz")),
+        audio_frequencia=config.get("audio_frequencia") if config.get("audio_frequencia") in ("nunca", "aleatorio", "a_cada", "sempre") else "aleatorio",
+        audio_chance=int(config.get("audio_chance", 20)),
+        audio_a_cada=int(config.get("audio_a_cada", 5)),
+        audio_responder_audio=config.get("audio_responder_audio", True) is not False,
     )
 
 
@@ -509,7 +543,8 @@ async def configurar_agente(
                     include={
                         "vocabulario_bairros", "vocabulario_tipos", "tom", "especialidades",
                         "publico_alvo", "palavras_proibidas", "nota_marca", "memorias",
-                        "confirmar_acoes", "voz",
+                        "confirmar_acoes", "voz", "audio_frequencia", "audio_chance", "audio_a_cada",
+                        "audio_responder_audio",
                     },
                     # Campo ausente no request não apaga o que já está salvo.
                     exclude_unset=True,

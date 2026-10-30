@@ -110,6 +110,10 @@ def _operacao_payload(payload: Dict[str, Any]) -> str:
 
 def _caracteres_payload(payload: Dict[str, Any]) -> int:
     total = 0
+    for req in payload.get("requests") or []:
+        for part in ((req.get("content") or {}).get("parts") or []):
+            if isinstance(part, dict) and isinstance(part.get("text"), str):
+                total += len(part["text"])
     for content in payload.get("contents") or []:
         for part in content.get("parts") or []:
             if isinstance(part, dict) and isinstance(part.get("text"), str):
@@ -180,6 +184,7 @@ class GeminiClient:
         data: Optional[Dict[str, Any]] = None,
         erro: bool = False,
         rate_limited: bool = False,
+        operacao: Optional[str] = None,
     ) -> None:
         if not self.record_usage:
             return
@@ -189,7 +194,7 @@ class GeminiClient:
             uso = (data or {}).get("usageMetadata") or {}
             await registrar_uso(
                 provider="gemini",
-                operation=_operacao_payload(payload),
+                operation=operacao or _operacao_payload(payload),
                 model=model,
                 requests=1,
                 errors=1 if erro else 0,
@@ -201,14 +206,20 @@ class GeminiClient:
         except Exception as e:  # noqa: BLE001 - métrica não pode quebrar a resposta
             log.warning("gemini_registrar_uso_falhou", error=str(e)[:200])
 
-    async def _post(self, model: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    async def _post(
+        self,
+        model: str,
+        payload: Dict[str, Any],
+        metodo: str = "generateContent",
+        operacao: Optional[str] = None,
+    ) -> Dict[str, Any]:
         from app.domain.usage.service import (
             cooldown_restante,
             iniciar_cooldown,
             segundos_retry,
         )
 
-        operacao = _operacao_payload(payload)
+        operacao = operacao or _operacao_payload(payload)
         # A cota é por modelo. Depois de um 429, novas chamadas só gastariam
         # tempo: o chamador cai direto no fallback até a pausa acabar.
         chave_cooldown = f"{operacao}:{model}"
@@ -218,7 +229,7 @@ class GeminiClient:
                 f"cota do Gemini ({operacao}) em pausa por mais {restante}s"
             )
 
-        url = f"{self.base_url}/models/{model}:generateContent"
+        url = f"{self.base_url}/models/{model}:{metodo}"
         try:
             async with httpx.AsyncClient(timeout=self.timeout) as client:
                 resposta = await client.post(
@@ -227,11 +238,11 @@ class GeminiClient:
                     json=payload,
                 )
         except httpx.HTTPError as e:
-            await self._registrar_uso(model, payload, erro=True)
+            await self._registrar_uso(model, payload, erro=True, operacao=operacao)
             raise GeminiError(f"falha de rede: {e}") from e
 
         if resposta.status_code == 429:
-            await self._registrar_uso(model, payload, erro=True, rate_limited=True)
+            await self._registrar_uso(model, payload, erro=True, rate_limited=True, operacao=operacao)
             pausa = segundos_retry(resposta.text)
             await iniciar_cooldown("gemini", chave_cooldown, pausa)
             log.error(
@@ -244,7 +255,7 @@ class GeminiClient:
             raise GeminiRateLimitError(f"HTTP 429 (cota): {resposta.text[:300]}")
 
         if resposta.status_code != 200:
-            await self._registrar_uso(model, payload, erro=True)
+            await self._registrar_uso(model, payload, erro=True, operacao=operacao)
             log.error(
                 "gemini_http_error",
                 status=resposta.status_code,
@@ -253,7 +264,7 @@ class GeminiClient:
             )
             raise GeminiError(f"HTTP {resposta.status_code}: {resposta.text[:300]}")
         data = resposta.json()
-        await self._registrar_uso(model, payload, data)
+        await self._registrar_uso(model, payload, data, operacao=operacao)
         return data
 
     async def gerar(
@@ -310,6 +321,36 @@ class GeminiClient:
                 texto_partes.append(part["text"])
 
         return {"text": "".join(texto_partes).strip(), "function_call": None}
+
+    async def embed(
+        self,
+        textos: List[str],
+        tarefa: str = "RETRIEVAL_DOCUMENT",
+        modelo: Optional[str] = None,
+    ) -> List[List[float]]:
+        """
+        Embeddings em lote (até 100 textos por chamada), na dimensão da migration 010.
+        `tarefa`: RETRIEVAL_DOCUMENT para o que se guarda, RETRIEVAL_QUERY para a pergunta.
+        """
+        if not textos:
+            return []
+        nome = modelo or settings.gemini_embedding_model
+        payload = {
+            "requests": [
+                {
+                    "model": f"models/{nome}",
+                    "content": {"parts": [{"text": (t or " ")[:2000]}]},
+                    "taskType": tarefa,
+                    "outputDimensionality": settings.gemini_embedding_dim,
+                }
+                for t in textos[:100]
+            ]
+        }
+        data = await self._post(nome, payload, metodo="batchEmbedContents", operacao="embed")
+        vetores = [e.get("values") or [] for e in data.get("embeddings") or []]
+        if len(vetores) != len(payload["requests"]) or any(len(v) != settings.gemini_embedding_dim for v in vetores):
+            raise GeminiError("embeddings com tamanho inesperado")
+        return vetores
 
     async def gerar_json(self, system_prompt: str, conteudo: str, max_tokens: int = 1200) -> Dict[str, Any]:
         """Uma chamada com saída JSON (responseMimeType); levanta GeminiError se não vier JSON válido."""

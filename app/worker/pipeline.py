@@ -20,6 +20,7 @@ from uuid import UUID, uuid4
 import structlog
 
 from app.domain.corretor.service import CorretorService
+from app.domain.conversa import memoria as memoria_conversa
 from app.domain.conversa.service import ConversaService
 from app.domain.imovel.service import ImovelService
 from app.domain.cliente.service import ClienteService
@@ -190,6 +191,18 @@ def _audio_cabe_na_resposta(
 
 
 async def processar_conversa(job: dict) -> None:
+    """Processa a mensagem e, em seguida, cuida da memória de longo prazo em segundo plano."""
+    await _processar_conversa(job)
+    if job.get("tipo_job") == "analisar_atendimento":
+        return
+    # Depois do commit e sem segurar o lock da conversa: indexar mensagens novas e resumir.
+    try:
+        memoria_conversa.agendar_manutencao(UUID(job["tenant_id"]), UUID(job["corretor_id"]))
+    except Exception as e:  # noqa: BLE001
+        log.warning("memoria_agendamento_falhou", error=str(e)[:160])
+
+
+async def _processar_conversa(job: dict) -> None:
     """Pipeline principal de processamento de uma mensagem."""
     # Análise de atendimento do WhatsApp pessoal (usa a mesma fila e o mesmo
     # lock da conversa do corretor, mas não é mensagem para responder).

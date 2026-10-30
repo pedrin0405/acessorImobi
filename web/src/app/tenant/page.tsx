@@ -6,6 +6,8 @@ import {
   Home,
   LayoutGrid,
   Handshake,
+  Building2,
+  Settings,
   CalendarDays,
   Contact,
   CheckCircle,
@@ -30,10 +32,11 @@ import { fetchApi, AuthError, clearToken, tokenRole, tokenSub } from "@/lib/api"
 import LoginForm from "@/components/LoginForm";
 import AppShell from "@/components/shell/AppShell";
 import Conversas from "@/components/crm/conversas/Conversas";
+import Imoveis from "@/components/crm/imoveis/Imoveis";
 import type { ConversaResumo } from "@/components/crm/conversas/tipos";
 import Inicio from "@/components/crm/Inicio";
 import VisaoGeral from "@/components/crm/VisaoGeral";
-import AgenteConfig from "@/components/crm/AgenteConfig";
+import Configuracoes from "@/components/configuracoes/Configuracoes";
 import Agenda from "@/components/crm/Agenda";
 import Leads from "@/components/crm/Leads";
 import Negociacoes from "@/components/crm/Negociacoes";
@@ -58,13 +61,15 @@ interface WhatsAppStatus {
   evolution_state?: string | null;
 }
 
-const ABAS = ["inicio", "visao", "conversas", "negociacoes", "agenda", "leads", "corretores", "whatsapp", "agente", "auditoria", "pendencias"] as const;
+const ABAS = ["inicio", "visao", "conversas", "negociacoes", "agenda", "imoveis", "leads", "corretores", "whatsapp", "agente", "configuracoes", "auditoria", "pendencias"] as const;
 type Aba = (typeof ABAS)[number];
 
 export default function TenantAdminPage() {
   const [authed, setAuthed] = useState(false);
   const [checkedAuth, setCheckedAuth] = useState(false);
   const [tab, setTab] = useState<Aba>("inicio");
+  const [secaoCfg, setSecaoCfg] = useState("perfil");
+  const noWhatsapp = tab === "configuracoes" && secaoCfg === "whatsapp";
   const [corretores, setCorretores] = useState<Corretor[]>([]);
   const [loading, setLoading] = useState(false);
 
@@ -291,6 +296,12 @@ export default function TenantAdminPage() {
     if (ABAS.includes(salva as Aba)) setTab(salva as Aba);
   }, []);
 
+  // Endereços antigos (#agente, #whatsapp) agora abrem dentro de Configurações.
+  useEffect(() => {
+    if (tab === "agente") { setSecaoCfg("voz"); setTab("configuracoes"); }
+    else if (tab === "whatsapp") { setSecaoCfg("whatsapp"); setTab("configuracoes"); }
+  }, [tab]);
+
   useEffect(() => {
     if (window.location.hash !== `#${tab}`) {
       window.history.replaceState(null, "", `#${tab}`);
@@ -308,21 +319,21 @@ export default function TenantAdminPage() {
     setCheckedAuth(true);
     if (tab === "conversas" || tab === "inicio") loadConversas();
     if (tab === "corretores") loadCorretores();
-    if (tab === "whatsapp") loadWhatsApp();
+    if (noWhatsapp) loadWhatsApp();
     if (tab === "auditoria") loadAuditoria();
     if (tab === "pendencias") loadPendencias();
-  }, [tab]);
+  }, [tab, secaoCfg]);
 
   // Enquanto o QR está pendente, consulta o status até o celular concluir o pareamento.
   useEffect(() => {
-    if (!authed || tab !== "whatsapp" || whatsapp?.status !== "qr_pending") return;
+    if (!authed || !noWhatsapp || whatsapp?.status !== "qr_pending") return;
 
     const timer = setInterval(() => {
       loadWhatsApp();
     }, 4000);
 
     return () => clearInterval(timer);
-  }, [authed, tab, whatsapp?.status]);
+  }, [authed, tab, secaoCfg, whatsapp?.status]);
 
   // Atualiza a lista de conversas periodicamente (sem auditar conteúdo).
   useEffect(() => {
@@ -372,135 +383,7 @@ export default function TenantAdminPage() {
       : `data:image/png;base64,${whatsapp.qr_code}`
     : null;
 
-  return (
-    <AppShell
-      marca="Acessor"
-      subtitulo="Portal da imobiliária"
-      ativo={tab}
-      larguraTotal={tab === "conversas"}
-      onSelecionar={(id) => setTab(id as Aba)}
-      grupos={[
-        {
-          itens: [
-            { id: "inicio", rotulo: "Início", icone: Home },
-            { id: "visao", rotulo: "Visão Geral", icone: LayoutGrid },
-            { id: "conversas", rotulo: "Conversas", icone: MessageSquare, contador: totalSemResposta || undefined },
-            { id: "leads", rotulo: "Clientes", icone: Contact },
-            { id: "negociacoes", rotulo: "Negociações", icone: Handshake },
-            { id: "agenda", rotulo: "Agenda", icone: CalendarDays },
-          ],
-        },
-        { titulo: "Equipe", itens: [{ id: "corretores", rotulo: "Corretores", icone: Users }] },
-        {
-          titulo: "Controle",
-          itens: [
-            { id: "auditoria", rotulo: "Auditoria", icone: History },
-            { id: "pendencias", rotulo: "Pendências", icone: AlertTriangle },
-          ],
-        },
-      ]}
-      rodape={[
-        { id: "agente", rotulo: "Agente", icone: Sliders },
-        { id: "whatsapp", rotulo: "WhatsApp", icone: QrCode },
-      ]}
-      usuario={{ nome: tokenSub() || "Administrador", papel: "Administrador da imobiliária" }}
-      onSair={() => {
-        clearToken();
-        setAuthed(false);
-      }}
-    >
-        {tab === "inicio" && <Inicio nome={tokenSub().split("@")[0] || "equipe"} onIr={(id) => setTab(id as Aba)} onAuthError={tratarAuthError} />}
-        {tab === "visao" && <VisaoGeral onAuthError={tratarAuthError} />}
-
-        {/* Tab Conversas */}
-        {tab === "conversas" && (
-          <Conversas
-            conversas={conversas}
-            carregando={loadingConversas}
-            onRecarregar={loadConversas}
-            onAuthError={tratarAuthError}
-            onIr={(id) => setTab(id as Aba)}
-          />
-        )}
-
-        {/* Tab Corretores */}
-        {tab === "corretores" && (
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-            <div className="p-6 border-b border-slate-100 flex justify-between items-center">
-              <h2 className="font-semibold text-slate-900">Corretores da Imobiliária ({corretores.length})</h2>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => {
-                    setNovoErro(null);
-                    setNovoCorretorOpen(true);
-                  }}
-                  className="flex items-center gap-2 px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-sm font-medium shadow-sm transition-colors"
-                >
-                  <PlusCircle className="w-4 h-4" /> Novo Corretor
-                </button>
-                <button onClick={loadCorretores} className="p-2 text-slate-400 hover:text-slate-600" title="Atualizar lista">
-                  <RefreshCw className="w-4 h-4" />
-                </button>
-              </div>
-            </div>
-
-            {loading ? (
-              <div className="p-12 text-center text-slate-400">Carregando...</div>
-            ) : corretores.length === 0 ? (
-              <div className="p-12 text-center text-slate-400">Nenhum corretor cadastrado.</div>
-            ) : (
-              <div className="divide-y divide-slate-100">
-                {corretores.map((c) => (
-                  <div key={c.id} className="p-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
-                    <div>
-                      <div className="flex items-center gap-3">
-                        <span className="font-bold text-slate-900">{c.nome || "Aguardando cadastro..."}</span>
-                        <span
-                          className={`text-xs px-2.5 py-0.5 rounded-full font-medium ${
-                            c.status === "active"
-                              ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
-                              : c.status === "pending"
-                              ? "bg-amber-50 text-amber-700 border border-amber-200"
-                              : "bg-rose-50 text-rose-700 border border-rose-200"
-                          }`}
-                        >
-                          {c.status.toUpperCase()}
-                        </span>
-                      </div>
-                      <div className="text-xs text-slate-500 mt-1 space-x-3">
-                        <span>Tel: {c.telefone_mascarado}</span>
-                        {c.email && <span>E-mail: {c.email}</span>}
-                      </div>
-                    </div>
-
-                    {c.status === "pending" && (
-                      <div className="flex items-center gap-2">
-                        <button
-                          onClick={() => handleDecidir(c.id, true)}
-                          className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-medium shadow-sm transition-colors"
-                        >
-                          <CheckCircle className="w-4 h-4" /> Aprovar
-                        </button>
-                        <button
-                          onClick={() => {
-                            setRecusaId(c.id);
-                            setRecusaModalOpen(true);
-                          }}
-                          className="flex items-center gap-1.5 px-3 py-1.5 bg-rose-600 hover:bg-rose-500 text-white rounded-lg text-xs font-medium shadow-sm transition-colors"
-                        >
-                          <XCircle className="w-4 h-4" /> Recusar
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Tab WhatsApp */}
-        {tab === "whatsapp" && (
+  const painelWhatsApp = (
           <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
             <div className="p-6 border-b border-slate-100 flex justify-between items-center">
               <div>
@@ -727,10 +610,148 @@ export default function TenantAdminPage() {
               </div>
             )}
           </div>
+  );
+
+  return (
+    <AppShell
+      marca="Acessor"
+      subtitulo="Portal da imobiliária"
+      ativo={tab}
+      larguraTotal={tab === "conversas"}
+      onSelecionar={(id) => setTab(id as Aba)}
+      grupos={[
+        {
+          itens: [
+            { id: "inicio", rotulo: "Início", icone: Home },
+            { id: "visao", rotulo: "Visão Geral", icone: LayoutGrid },
+            { id: "conversas", rotulo: "Conversas", icone: MessageSquare, contador: totalSemResposta || undefined },
+            { id: "leads", rotulo: "Clientes", icone: Contact },
+            { id: "negociacoes", rotulo: "Negociações", icone: Handshake },
+            { id: "agenda", rotulo: "Agenda", icone: CalendarDays },
+            { id: "imoveis", rotulo: "Imóveis", icone: Building2 },
+          ],
+        },
+        { titulo: "Equipe", itens: [{ id: "corretores", rotulo: "Corretores", icone: Users }] },
+        {
+          titulo: "Controle",
+          itens: [
+            { id: "auditoria", rotulo: "Auditoria", icone: History },
+            { id: "pendencias", rotulo: "Pendências", icone: AlertTriangle },
+          ],
+        },
+      ]}
+      rodape={[
+        { id: "configuracoes", rotulo: "Configurações", icone: Settings },
+      ]}
+      usuario={{ nome: tokenSub() || "Administrador", papel: "Administrador da imobiliária" }}
+      onSair={() => {
+        clearToken();
+        setAuthed(false);
+      }}
+    >
+        {tab === "inicio" && <Inicio nome={tokenSub().split("@")[0] || "equipe"} onIr={(id) => setTab(id as Aba)} onAuthError={tratarAuthError} />}
+        {tab === "visao" && <VisaoGeral onAuthError={tratarAuthError} />}
+
+        {/* Tab Conversas */}
+        {tab === "conversas" && (
+          <Conversas
+            conversas={conversas}
+            carregando={loadingConversas}
+            onRecarregar={loadConversas}
+            onAuthError={tratarAuthError}
+            onIr={(id) => setTab(id as Aba)}
+          />
         )}
 
-        {/* Tab Agente */}
-        {tab === "agente" && <AgenteConfig onAuthError={tratarAuthError} />}
+        {tab === "imoveis" && <Imoveis onAuthError={tratarAuthError} onIr={(id) => setTab(id as Aba)} />}
+
+        {/* Tab Corretores */}
+        {tab === "corretores" && (
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+            <div className="p-6 border-b border-slate-100 flex justify-between items-center">
+              <h2 className="font-semibold text-slate-900">Corretores da Imobiliária ({corretores.length})</h2>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => {
+                    setNovoErro(null);
+                    setNovoCorretorOpen(true);
+                  }}
+                  className="flex items-center gap-2 px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-sm font-medium shadow-sm transition-colors"
+                >
+                  <PlusCircle className="w-4 h-4" /> Novo Corretor
+                </button>
+                <button onClick={loadCorretores} className="p-2 text-slate-400 hover:text-slate-600" title="Atualizar lista">
+                  <RefreshCw className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+
+            {loading ? (
+              <div className="p-12 text-center text-slate-400">Carregando...</div>
+            ) : corretores.length === 0 ? (
+              <div className="p-12 text-center text-slate-400">Nenhum corretor cadastrado.</div>
+            ) : (
+              <div className="divide-y divide-slate-100">
+                {corretores.map((c) => (
+                  <div key={c.id} className="p-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                    <div>
+                      <div className="flex items-center gap-3">
+                        <span className="font-bold text-slate-900">{c.nome || "Aguardando cadastro..."}</span>
+                        <span
+                          className={`text-xs px-2.5 py-0.5 rounded-full font-medium ${
+                            c.status === "active"
+                              ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                              : c.status === "pending"
+                              ? "bg-amber-50 text-amber-700 border border-amber-200"
+                              : "bg-rose-50 text-rose-700 border border-rose-200"
+                          }`}
+                        >
+                          {c.status.toUpperCase()}
+                        </span>
+                      </div>
+                      <div className="text-xs text-slate-500 mt-1 space-x-3">
+                        <span>Tel: {c.telefone_mascarado}</span>
+                        {c.email && <span>E-mail: {c.email}</span>}
+                      </div>
+                    </div>
+
+                    {c.status === "pending" && (
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => handleDecidir(c.id, true)}
+                          className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-medium shadow-sm transition-colors"
+                        >
+                          <CheckCircle className="w-4 h-4" /> Aprovar
+                        </button>
+                        <button
+                          onClick={() => {
+                            setRecusaId(c.id);
+                            setRecusaModalOpen(true);
+                          }}
+                          className="flex items-center gap-1.5 px-3 py-1.5 bg-rose-600 hover:bg-rose-500 text-white rounded-lg text-xs font-medium shadow-sm transition-colors"
+                        >
+                          <XCircle className="w-4 h-4" /> Recusar
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Configurações (inclui o WhatsApp do agente e a configuração do agente) */}
+        {tab === "configuracoes" && (
+          <Configuracoes
+            secaoInicial={secaoCfg}
+            onSecao={setSecaoCfg}
+            onAuthError={tratarAuthError}
+            onIr={(id) => setTab(id as Aba)}
+            onSair={() => { clearToken(); setAuthed(false); }}
+            renderWhatsApp={() => painelWhatsApp}
+          />
+        )}
 
         {tab === "negociacoes" && <Negociacoes onAuthError={tratarAuthError} />}
         {tab === "agenda" && <Agenda onAuthError={tratarAuthError} />}

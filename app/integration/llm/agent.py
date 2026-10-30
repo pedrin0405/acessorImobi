@@ -4,6 +4,7 @@ Orquestrador do Agente de IA com suporte a Tool Calling.
 Provedor principal configurável por LLM_PROVIDER (gemini ou ollama) e fallback
 determinístico para manter o atendimento responsivo mesmo sem IA disponível.
 """
+import asyncio
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 import json
@@ -11,7 +12,7 @@ import random
 import re
 import time
 import unicodedata
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
@@ -23,6 +24,7 @@ from sqlalchemy.sql import text
 from app.domain.cliente.service import ClienteService
 from app.domain.crm.acoes import executar_acao, resumo_acao
 from app.domain.crm.service import CrmService, resumo_perfil
+from app.domain.conversa import memoria as memoria_conversa
 from app.domain.imovel.service import ImovelService
 from app.integration.llm.gemini import GeminiClient, GeminiError
 from app.integration.llm.tom import TONS, remover_palavras_proibidas
@@ -425,7 +427,7 @@ def _resumo_legenda(legenda: str) -> str:
     return re.sub(r"\s+", " ", linha).strip()[:90]
 
 
-def _historico_para_contexto(historico: List[Dict[str, Any]]) -> List[Dict[str, str]]:
+def _janela_contexto(historico: List[Dict[str, Any]]) -> Tuple[List[Dict[str, str]], Optional[str], bool]:
     """
     Converte o histórico do banco em mensagens para a IA.
 
@@ -434,9 +436,15 @@ def _historico_para_contexto(historico: List[Dict[str, Any]]) -> List[Dict[str, 
     que o corretor tinha pedido. Aqui as fotos seguidas viram uma linha-resumo,
     áudios que repetem o texto anterior são descartados e o total respeita a
     janela de contexto configurada.
+
+    Devolve também onde a janela começa (`created_at` da mensagem mais antiga que
+    entrou) e se algo ficou de fora: é o que a memória de longo prazo usa para
+    buscar só o que o modelo não está vendo.
     """
     mensagens: List[Dict[str, str]] = []
+    origens: List[Optional[str]] = []
     fotos: List[str] = []
+    fotos_origem: List[Optional[str]] = []
 
     def _fechar_fotos() -> None:
         if not fotos:
@@ -447,7 +455,9 @@ def _historico_para_contexto(historico: List[Dict[str, Any]]) -> List[Dict[str, 
             "role": "assistant",
             "content": f"[Enviei {rotulo} com os detalhes na legenda: {itens}]",
         })
+        origens.append(fotos_origem[0])
         fotos.clear()
+        fotos_origem.clear()
 
     historico = historico or []
     for i, h in enumerate(historico):
@@ -459,6 +469,7 @@ def _historico_para_contexto(historico: List[Dict[str, Any]]) -> List[Dict[str, 
             continue
         if saida and h.get("tipo") == "image":
             fotos.append(_resumo_legenda(conteudo))
+            fotos_origem.append(h.get("created_at"))
             continue
         _fechar_fotos()
         if not conteudo:
@@ -467,13 +478,31 @@ def _historico_para_contexto(historico: List[Dict[str, Any]]) -> List[Dict[str, 
         if saida and mensagens and mensagens[-1]["role"] == "assistant" and mensagens[-1]["content"] == conteudo:
             continue
         mensagens.append({"role": papel, "content": conteudo})
+        origens.append(h.get("created_at"))
     _fechar_fotos()
 
-    mensagens = mensagens[-settings.context_window_messages:]
+    descartou = len(mensagens) > settings.context_window_messages
+    if descartou:
+        mensagens = mensagens[-settings.context_window_messages:]
+        origens = origens[-settings.context_window_messages:]
     orcamento = settings.context_window_tokens * 4  # ~4 caracteres por token
     while len(mensagens) > 1 and sum(len(m["content"]) for m in mensagens) > orcamento:
         mensagens.pop(0)
-    return mensagens
+        origens.pop(0)
+        descartou = True
+    return mensagens, (origens[0] if origens else None), descartou
+
+
+def _historico_para_contexto(historico: List[Dict[str, Any]]) -> List[Dict[str, str]]:
+    return _janela_contexto(historico)[0]
+
+
+def _bloco_memoria(memoria: Optional[Dict[str, Any]], tenant_cfg: Dict[str, Any]) -> str:
+    try:
+        fuso = ZoneInfo(tenant_cfg.get("fuso") or settings.usage_timezone or "America/Sao_Paulo")
+    except Exception:  # noqa: BLE001
+        fuso = ZoneInfo("America/Sao_Paulo")
+    return memoria_conversa.bloco_prompt(memoria, fuso)
 
 
 def _normalizar(texto: str) -> str:
@@ -631,6 +660,7 @@ class AgentOrchestrator:
     def __init__(self, tenant_id: UUID, corretor, session: AsyncSession):
         self._passos: List[Dict[str, Any]] = []
         self._rota = ""
+        self._t_memoria = 0.0
         self.tenant_id = tenant_id
         self.corretor = corretor
         self._session = session
@@ -1200,6 +1230,7 @@ class AgentOrchestrator:
         historico: Optional[List[Dict[str, Any]]] = None,
         entrada_audio: bool = False,
         resposta_em_audio: bool = False,
+        memoria: Optional[Dict[str, Any]] = None,
     ) -> str:
         """
         Prompt em camadas: persona do tenant (autoridade), contexto do momento
@@ -1268,7 +1299,9 @@ class AgentOrchestrator:
             + bloco_marca
             + "## Contexto deste momento\n"
             + "\n".join(contexto)
-            + "\n\n## Como conversar\n"
+            + "\n\n"
+            + _bloco_memoria(memoria, tenant_cfg)
+            + "## Como conversar\n"
             "Você é o Acessor e conversa pelo WhatsApp como um colega de verdade, não como um robô "
             "de atendimento. Se algo abaixo conflitar com a persona acima, siga a persona.\n"
             "- Reaja ao que o corretor disse antes de responder (concorde, comente, brinque se ele "
@@ -1509,6 +1542,41 @@ class AgentOrchestrator:
             )
         return resultado
 
+    def _iniciar_memoria(self, mensagem: str, historico: List[Dict[str, Any]]) -> Optional["asyncio.Task"]:
+        """Dispara a recuperação da memória quando a conversa é maior que a janela recente."""
+        if not memoria_conversa.disponivel():
+            return None
+        _, corte, descartou = _janela_contexto(historico)
+        # O pipeline busca no máximo 3x a janela: abaixo disso o histórico inteiro já está à vista.
+        if not corte or not (descartou or len(historico) >= settings.context_window_messages * 3 - 2):
+            return None
+        self._t_memoria = time.perf_counter()
+        return asyncio.create_task(
+            memoria_conversa.recuperar(
+                self.tenant_id,
+                self.corretor.id,
+                corte,
+                memoria_conversa.consulta_de_busca(mensagem, historico),
+                pular_busca=memoria_conversa.eh_ruido(mensagem),
+            )
+        )
+
+    async def _aguardar_memoria(self, tarefa: Optional["asyncio.Task"]) -> Optional[Dict[str, Any]]:
+        if tarefa is None:
+            return None
+        try:
+            memoria = await tarefa
+        except Exception as e:  # noqa: BLE001 - a memória nunca derruba a resposta
+            log.warning("memoria_falhou", error=str(e)[:160])
+            memoria = None
+        ms = (time.perf_counter() - self._t_memoria) * 1000
+        if memoria is None:
+            self._passo("Memória", "Indisponível agora (falha ou tempo esgotado); seguiu só com as mensagens recentes", ms)
+        elif memoria.get("resumo") or memoria.get("trechos") or memoria.get("ms"):
+            detalhe, extra = memoria_conversa.detalhe_passo(memoria)
+            self._passo("Memória", detalhe, ms, **extra)
+        return memoria
+
     async def _processar(
         self,
         mensagem: str,
@@ -1519,6 +1587,10 @@ class AgentOrchestrator:
     ) -> ToolResult:
         provider = (settings.llm_provider or "ollama").strip().lower()
         usar_gemini = provider == "gemini" and bool(settings.gemini_api_key)
+
+        # Memória de longo prazo: a busca (embedding + pgvector, com sessão própria) corre em
+        # paralelo ao resto da preparação e só existe quando há conversa fora da janela.
+        tarefa_memoria = self._iniciar_memoria(mensagem, historico)
 
         # Rota determinística: responde na hora o que não precisa de IA.
         # Com Gemini ativo, conversa casual e busca de imóveis vão para a IA,
@@ -1531,15 +1603,19 @@ class AgentOrchestrator:
             incluir_clientes=not usar_gemini,
         )
         if deterministico:
+            if tarefa_memoria:
+                tarefa_memoria.cancel()
             self._rota = "regras"
             self._passo("Roteamento", "Pedido reconhecido por regras; a IA não foi chamada (resposta imediata)")
             return deterministico
 
+        memoria = await self._aguardar_memoria(tarefa_memoria)
         system_prompt = self._montar_system_prompt(
             tenant_cfg,
             historico=historico,
             entrada_audio=entrada_audio,
             resposta_em_audio=resposta_em_audio,
+            memoria=memoria,
         )
         messages = self._montar_messages(system_prompt, historico, mensagem)
 

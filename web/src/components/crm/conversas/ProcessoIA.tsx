@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useRef, useState } from "react";
-import { AlertTriangle, ChevronDown, Cpu, MessageSquare, Mic, Send, Sparkles, Wrench, Zap } from "lucide-react";
+import { AlertTriangle, Brain, ChevronDown, Cpu, MessageSquare, Mic, Send, Sparkles, Wrench, Zap } from "lucide-react";
 import { MensagemChat } from "../ChatMensagens";
 
 export interface PassoIA {
@@ -43,6 +43,7 @@ export function duracao(ms?: number | null): string {
 function iconeDaEtapa(etapa: string): React.ReactNode {
   const classe = "w-3.5 h-3.5";
   if (/receb/i.test(etapa)) return <MessageSquare className={classe} aria-hidden />;
+  if (/mem[óo]ria/i.test(etapa)) return <Brain className={classe} aria-hidden />;
   if (/transcri/i.test(etapa)) return <Mic className={classe} aria-hidden />;
   if (/ferramenta/i.test(etapa)) return <Wrench className={classe} aria-hidden />;
   if (/falha|seguran/i.test(etapa)) return <AlertTriangle className={classe} aria-hidden />;
@@ -53,7 +54,7 @@ function iconeDaEtapa(etapa: string): React.ReactNode {
 }
 
 const corDaEtapa = (etapa: string) =>
-  /falha|seguran/i.test(etapa) ? "var(--warn)" : /ferramenta/i.test(etapa) ? "var(--info)" : /interpreta|reda|resposta direta|^ia$/i.test(etapa) ? "var(--accent)" : "var(--text-3)";
+  /mem[óo]ria/i.test(etapa) ? "var(--info)" : /falha|seguran/i.test(etapa) ? "var(--warn)" : /ferramenta/i.test(etapa) ? "var(--info)" : /interpreta|reda|resposta direta|^ia$/i.test(etapa) ? "var(--accent)" : "var(--text-3)";
 
 function Detalhe({ rotulo, children }: { rotulo: string; children: React.ReactNode }) {
   return (

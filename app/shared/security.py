@@ -29,12 +29,13 @@ def create_access_token(
     corretor_id: Optional[UUID] = None,
     admin_id: Optional[UUID] = None,
 ) -> str:
-    expire = datetime.now(timezone.utc) + (
-        expires_delta or timedelta(minutes=settings.access_token_expire_minutes)
-    )
+    agora = datetime.now(timezone.utc)
+    expire = agora + (expires_delta or timedelta(minutes=settings.access_token_expire_minutes))
     payload = {
         "sub": subject,
         "exp": expire,
+        # Hora de emissão: trocar a senha invalida os tokens emitidos antes (tokens_validos_apos).
+        "iat": agora,
         "role": role,
     }
     if tenant_id:

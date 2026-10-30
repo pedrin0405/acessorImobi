@@ -29,8 +29,9 @@ class CriarTenantRequest(BaseModel):
     nome: str
     slug: str                     # subdomínio
     numero_whatsapp: str          # número do agente em formato livre
-    imoview_base_url: str
-    imoview_chave: str            # cifrada antes de persistir
+    # Opcionais: a imobiliária configura a integração com o Imoview no próprio portal.
+    imoview_base_url: Optional[str] = None
+    imoview_chave: Optional[str] = None  # cifrada antes de persistir
     ollama_model: Optional[str] = "qwen3:8b"
     admin_email: Optional[str] = None        # administrador inicial da imobiliária
     admin_senha: Optional[str] = None        # senha do administrador inicial

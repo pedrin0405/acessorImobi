@@ -46,12 +46,22 @@ class NegocioCreate(BaseModel):
 
 class AtividadeCreate(BaseModel):
     corretor_id: UUID
-    tipo: str = Field(pattern="^(visita|reuniao|ligacao|follow_up|whatsapp|tarefa|email|documento)$")
+    tipo: str = Field(pattern=r"^[a-z0-9_]{3,40}$")
     titulo: Optional[str] = Field(default=None, max_length=255)
     data: Optional[date] = None
     hora: Optional[str] = Field(default=None, pattern=r"^\d{2}:\d{2}$")
     cliente: Optional[str] = None
     local: Optional[str] = Field(default=None, max_length=255)
+
+
+class LeadCreate(BaseModel):
+    nome: str = Field(min_length=2, max_length=255)
+    corretor_id: Optional[UUID] = None  # vazio: a Roleta de leads escolhe (se estiver ligada)
+    telefone: Optional[str] = Field(default=None, max_length=20)
+    email: Optional[str] = Field(default=None, max_length=255)
+    origem: Optional[str] = Field(default=None, max_length=40)
+    observacoes: Optional[str] = Field(default=None, max_length=2000)
+    temperatura: Optional[str] = Field(default=None, pattern="^(quente|morno|frio)$")
 
 
 class AtividadeUpdate(BaseModel):
@@ -199,6 +209,34 @@ async def listar_leads(
         return await CrmService(session).listar_leads(
             admin.tenant_id, corretor_id=corretor_id, termo=termo, limit=500
         )
+
+
+@router.post("/leads", status_code=status.HTTP_201_CREATED, summary="Cria um cliente; sem corretor, a Roleta de leads distribui")
+async def criar_lead(body: LeadCreate, admin=Depends(require_admin)):
+    from app.domain.configuracoes.service import ConfiguracoesService
+
+    async with get_session(admin.tenant_id) as session:
+        via_roleta = False
+        corretor_id = body.corretor_id
+        if corretor_id:
+            await _corretor_ativo(session, admin.tenant_id, corretor_id)
+        else:
+            proximo = await ConfiguracoesService(session, admin.tenant_id).proximo_da_roleta()
+            if not proximo:
+                raise HTTPException(status_code=422, detail="Escolha o corretor responsável ou ligue a Roleta de leads em Configurações.")
+            corretor_id, via_roleta = UUID(proximo), True
+        try:
+            lead = await CrmService(session).criar_lead(
+                admin.tenant_id, corretor_id, nome=body.nome, telefone=body.telefone, email=body.email,
+                observacoes=body.observacoes, origem=body.origem or "manual", temperatura=body.temperatura or "morno",
+            )
+        except CrmError as e:
+            raise _erro(e)
+        await AuditoriaService(session).registrar(
+            tenant_id=admin.tenant_id, corretor_id=corretor_id, acao="crm_registrar_lead", entidade="lead",
+            entidade_id=str(lead["id"]), origem="portal", payload_depois={"nome": body.nome, "roleta": via_roleta},
+        )
+        return {**lead, "via_roleta": via_roleta}
 
 
 @router.get("/leads/{lead_id}/match", summary="Imóveis que combinam com o perfil do lead")

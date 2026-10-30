@@ -98,6 +98,17 @@ class Settings(BaseSettings):
     context_window_messages: int = 12
     context_window_tokens: int = 2500
 
+    # Memória de longo prazo das conversas (RAG): embeddings do Gemini + resumo incremental
+    memoria_ativa: bool = True
+    gemini_embedding_model: str = "gemini-embedding-001"
+    gemini_embedding_dim: int = 768           # precisa casar com vector(768) da migration 010
+    memoria_k: int = 4                        # trechos antigos que entram no prompt
+    memoria_limiar: float = 0.6               # similaridade de cosseno mínima (0 a 1)
+    memoria_timeout_s: float = 1.5            # teto da consulta antes de responder só com a janela recente
+    memoria_resumo_a_cada: int = 16           # mensagens fora da janela antes de atualizar o resumo
+    memoria_trecho_max_chars: int = 500
+    memoria_backfill_lote: int = 120          # mensagens antigas indexadas por tenant a cada execução
+
     # Cache TTLs (segundos)
     cache_imovel_ttl: int = 1800    # 30 min
     cache_cliente_ttl: int = 900    # 15 min
