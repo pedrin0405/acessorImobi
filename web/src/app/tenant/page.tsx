@@ -29,6 +29,7 @@ import {
 import { fetchApi, AuthError, clearToken, tokenRole, tokenSub } from "@/lib/api";
 import LoginForm from "@/components/LoginForm";
 import AppShell from "@/components/shell/AppShell";
+import ChatMensagens from "@/components/crm/ChatMensagens";
 import Inicio from "@/components/crm/Inicio";
 import VisaoGeral from "@/components/crm/VisaoGeral";
 import AgenteConfig from "@/components/crm/AgenteConfig";
@@ -64,6 +65,7 @@ interface Mensagem {
   conteudo: string | null;
   status: string;
   created_at: string | null;
+  midia?: string | null;
 }
 
 interface WhatsAppStatus {
@@ -468,15 +470,12 @@ export default function TenantAdminPage() {
       return "Sem prévia";
     }
     const prefixo = conversa.ultima_direcao === "outbound" ? "Acessor: " : "";
-    return `${prefixo}${conversa.ultima_mensagem}`;
-  };
-
-  const conteudoMensagem = (m: Mensagem) => {
-    if (m.conteudo) return m.conteudo;
-    if (m.tipo === "audio") return "🎤 Áudio";
-    if (m.tipo === "image") return "📷 Foto";
-    if (m.tipo === "document") return "📄 Documento";
-    return "(mensagem sem texto)";
+    if (conversa.ultimo_tipo === "image") {
+      const titulo = conversa.ultima_mensagem.split("\n")[0].replace(/^[^A-Za-z0-9À-ÿ]+/, "").replace(/\*/g, "").trim();
+      return `${prefixo}📷 ${titulo || "Foto"}`;
+    }
+    if (conversa.ultimo_tipo === "audio") return `${prefixo}🎤 ${conversa.ultima_mensagem}`;
+    return `${prefixo}${conversa.ultima_mensagem.replace(/\*/g, "")}`;
   };
 
   return (
@@ -649,7 +648,13 @@ export default function TenantAdminPage() {
                       </div>
                     </div>
 
-                    <div className="flex-1 overflow-y-auto px-4 py-5 space-y-2">
+                    <div
+                      className="flex-1 overflow-y-auto"
+                      style={{
+                        backgroundImage: "radial-gradient(var(--line) 1px, transparent 1px)",
+                        backgroundSize: "22px 22px",
+                      }}
+                    >
                       {loadingMensagens ? (
                         <div className="h-full flex items-center justify-center text-slate-500 gap-2">
                           <Loader2 className="w-5 h-5 animate-spin" />
@@ -661,39 +666,7 @@ export default function TenantAdminPage() {
                         </div>
                       ) : (
                         <>
-                          {mensagens.map((m) => {
-                            const outbound = m.direcao === "outbound";
-                            return (
-                              <div
-                                key={m.id}
-                                className={`flex ${outbound ? "justify-end" : "justify-start"}`}
-                              >
-                                <div
-                                  className={`max-w-[78%] px-3 py-2 shadow-sm text-sm whitespace-pre-wrap break-words ${
-                                    outbound
-                                      ? "bg-[#d9fdd3] text-slate-800 rounded-2xl rounded-tr-sm"
-                                      : "bg-white text-slate-800 rounded-2xl rounded-tl-sm"
-                                  }`}
-                                >
-                                  <div className="flex items-center gap-1.5 text-[10px] text-slate-500 mb-0.5">
-                                    {m.tipo === "audio" && <Mic className="w-3 h-3" />}
-                                    {m.tipo === "image" && <ImageIcon className="w-3 h-3" />}
-                                    {m.tipo === "document" && <FileText className="w-3 h-3" />}
-                                    <span>{outbound ? "Acessor" : "Corretor"}</span>
-                                  </div>
-                                  <p>{conteudoMensagem(m)}</p>
-                                  <div
-                                    className={`flex items-center justify-end gap-1 mt-1 text-[10px] ${
-                                      outbound ? "text-emerald-800/60" : "text-slate-400"
-                                    }`}
-                                  >
-                                    <span>{formatarHora(m.created_at)}</span>
-                                    {outbound && <CheckCheck className="w-3.5 h-3.5" />}
-                                  </div>
-                                </div>
-                              </div>
-                            );
-                          })}
+                          <ChatMensagens mensagens={mensagens} />
                           <div ref={chatEndRef} />
                         </>
                       )}

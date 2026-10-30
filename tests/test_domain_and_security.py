@@ -71,3 +71,30 @@ def test_jwt_tokens(monkeypatch):
     payload = decode_access_token(token)
     assert payload["sub"] == "user123"
     assert payload["role"] == "corretor"
+
+
+def test_midia_da_mensagem_na_conversa():
+    from uuid import uuid4
+
+    from app.api.routers.tenant_admin import _RE_CODIGO_IMOVEL, _midia_da_mensagem
+
+    cid = uuid4()
+    legenda = "🏠 *Apartamento* no bairro *Graciosa Orla 14*\n🏷️ Código: 16665"
+    assert _RE_CODIGO_IMOVEL.search(legenda).group(1) == "16665"
+
+    # Foto já gravada vira a própria URL.
+    foto = {"id": "1", "tipo": "image", "conteudo": legenda, "midia_url": "https://cdn/x.jpg"}
+    assert _midia_da_mensagem(foto, cid, {}) == "https://cdn/x.jpg"
+
+    # Mensagem antiga sem foto gravada: recupera pelo código no cache.
+    antiga = {"id": "2", "tipo": "image", "conteudo": legenda, "midia_url": None}
+    assert _midia_da_mensagem(antiga, cid, {16665: "https://cdn/y.jpg"}) == "https://cdn/y.jpg"
+    assert _midia_da_mensagem(antiga, cid, {}) is None
+
+    # Áudio guardado no MinIO só é acessível pela rota autenticada, nunca pela chave.
+    audio = {"id": "3", "tipo": "audio", "conteudo": "oi", "midia_url": "s3:t/c/a.ogg"}
+    rota = _midia_da_mensagem(audio, cid, {})
+    assert rota == f"/admin/conversas/{cid}/mensagens/3/midia" and "s3:" not in rota
+
+    texto = {"id": "4", "tipo": "text", "conteudo": "oi", "midia_url": None}
+    assert _midia_da_mensagem(texto, cid, {}) is None

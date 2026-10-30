@@ -26,12 +26,13 @@ from app.domain.cliente.service import ClienteService
 from app.domain.auditoria.service import AuditoriaService
 from app.domain.crm.acoes import TIPOS_ACAO, executar_acao
 from app.integration.llm.agent import AgentOrchestrator
-from app.integration.transcription.whisper import transcrever_audio
+from app.integration.transcription.whisper import _decodificar_midia, transcrever_audio
 from app.integration.tts import get_tts_client
 from app.integration.tts.vozes import id_clone
 from app.integration.whatsapp.evolution import EvolutionClient
 from app.shared.config import get_settings
 from app.shared.database import get_session
+from app.shared.storage import guardar_midia
 
 log = structlog.get_logger()
 settings = get_settings()
@@ -287,11 +288,18 @@ async def processar_conversa(job: dict) -> None:
                 )
                 return
 
+            # Guarda o áudio recebido (quando veio como mídia embutida) para o
+            # portal poder tocá-lo; falha de storage não impede a resposta.
+            arquivo = None
+            bruto = _decodificar_midia(audio_url) if audio_url else None
+            if bruto:
+                arquivo = await guardar_midia(tenant_id, corretor_id, bruto, "ogg", "audio/ogg")
+
             # Atualiza a mensagem com a transcrição
             from sqlalchemy.sql import text as sqltext
             await session.execute(
-                sqltext("UPDATE mensagens SET transcricao=:t WHERE id=:id"),
-                {"t": conteudo, "id": str(mensagem_id)},
+                sqltext("UPDATE mensagens SET transcricao=:t, midia_url=:m WHERE id=:id"),
+                {"t": conteudo, "m": arquivo, "id": str(mensagem_id)},
             )
 
         else:
@@ -701,14 +709,15 @@ async def _persistir_saida(
     conteudo: str,
     tipo: str = "text",
     trace: Optional[dict] = None,
+    midia_url: Optional[str] = None,
 ) -> None:
     """Persiste uma mensagem enviada pelo assistente."""
     from sqlalchemy.sql import text as sqltext
 
     await session.execute(
         sqltext("""
-            INSERT INTO mensagens (tenant_id, corretor_id, message_id, direcao, tipo, conteudo, status, trace)
-            VALUES (:tid, :cid, :mid, 'outbound', :tipo, :conteudo, 'sent', CAST(:trace AS jsonb))
+            INSERT INTO mensagens (tenant_id, corretor_id, message_id, direcao, tipo, conteudo, status, trace, midia_url)
+            VALUES (:tid, :cid, :mid, 'outbound', :tipo, :conteudo, 'sent', CAST(:trace AS jsonb), :midia)
         """),
         {
             "tid": str(tenant_id),
@@ -717,6 +726,7 @@ async def _persistir_saida(
             "tipo": tipo,
             "conteudo": conteudo,
             "trace": json.dumps(trace or {}),
+            "midia": midia_url,
         },
     )
 
@@ -807,7 +817,8 @@ async def _enviar_resposta(
             return False
         finally:
             presenca.cancel()
-        await _persistir_saida(session, tenant_id, corretor, fala, "audio", trace)
+        arquivo = await guardar_midia(tenant_id, corretor.id, ogg, "ogg", "audio/ogg")
+        await _persistir_saida(session, tenant_id, corretor, fala, "audio", trace, midia_url=arquivo)
         enviados += 1
         return True
 
@@ -826,7 +837,9 @@ async def _enviar_resposta(
                     caption=resumo[:1000],
                     file_name=f"imovel-{codigo}.jpg",
                 )
-                await _persistir_saida(session, tenant_id, corretor, resumo, "image", trace)
+                await _persistir_saida(
+                    session, tenant_id, corretor, resumo, "image", trace, midia_url=foto
+                )
                 enviados += 1
                 return
             except Exception as e:

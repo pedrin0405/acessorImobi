@@ -23,6 +23,7 @@ class MensagemHistorico:
         self.conteudo = row.conteudo
         self.transcricao = row.transcricao
         self.status = row.status
+        self.midia_url = row.midia_url
         self.created_at = row.created_at
 
 
@@ -66,7 +67,7 @@ class ConversaService:
 
         rows = await self._session.execute(
             text(f"""
-                SELECT id, direcao, tipo, conteudo, transcricao, status, created_at
+                SELECT id, direcao, tipo, conteudo, transcricao, status, midia_url, created_at
                 FROM mensagens
                 WHERE corretor_id = :cid
                   {where_tenant}
@@ -86,6 +87,7 @@ class ConversaService:
                 "tipo": m.tipo,
                 "conteudo": m.transcricao if m.transcricao else m.conteudo,
                 "status": m.status,
+                "midia_url": m.midia_url,
                 "created_at": m.created_at.isoformat() if m.created_at else None,
             }
             for m in mensagens

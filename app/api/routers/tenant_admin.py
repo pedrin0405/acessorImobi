@@ -7,12 +7,14 @@ Permissões:
 - Consulta uso, auditoria e pendências de integração
 - NÃO acessa conteúdo de conversa por padrão (se acessar, fica registrado)
 """
-from typing import List, Optional
+import re
+from typing import Any, Dict, List, Optional
 from uuid import UUID
 
 import structlog
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pydantic import BaseModel, field_validator
+from sqlalchemy import text
 
 from app.api.middleware.auth import require_admin
 from app.domain.corretor.service import CorretorService
@@ -23,6 +25,7 @@ from app.integration.tts.vozes import VOZ_PADRAO, listar_vozes, resolver_voz, vo
 from app.domain.whatsapp.service import WhatsAppService, WhatsAppIntegrationError
 from app.integration.llm.tom import MAX_MEMORIA, MAX_MEMORIAS, MAX_NOTA_MARCA, TONS
 from app.shared.database import get_session
+from app.shared.storage import PREFIXO_S3, ler_midia
 from app.shared.security import mask_phone
 
 router = APIRouter()
@@ -151,6 +154,8 @@ class MensagemResponse(BaseModel):
     conteudo: Optional[str]
     status: str
     created_at: Optional[str]
+    # URL da foto (http...) ou rota autenticada do áudio (/admin/...); None sem mídia.
+    midia: Optional[str] = None
 
 
 class ConversaDetalheResponse(BaseModel):
@@ -313,6 +318,69 @@ async def listar_conversas(admin=Depends(require_admin)):
     ]
 
 
+_RE_CODIGO_IMOVEL = re.compile(r"C[óo]digo:\s*\*?(\d{3,9})")
+
+
+async def _fotos_por_codigo(session, tenant_id: UUID, codigos: List[int]) -> Dict[int, str]:
+    """Foto de capa dos imóveis (cache do Imoview), para mensagens antigas sem a foto gravada."""
+    if not codigos:
+        return {}
+    rows = await session.execute(
+        text("""
+            SELECT codigo_imoview, dados_extras->>'foto_url' AS foto
+            FROM imoveis_cache
+            WHERE tenant_id = :tid AND codigo_imoview = ANY(:codigos)
+        """),
+        {"tid": str(tenant_id), "codigos": codigos},
+    )
+    return {r.codigo_imoview: r.foto for r in rows.fetchall() if r.foto}
+
+
+def _midia_da_mensagem(m: Dict[str, Any], corretor_id: UUID, fotos: Dict[int, str]) -> Optional[str]:
+    ref = m.get("midia_url") or ""
+    if ref.startswith("http"):
+        return ref
+    if ref.startswith(PREFIXO_S3):
+        return f"/admin/conversas/{corretor_id}/mensagens/{m['id']}/midia"
+    if m.get("tipo") == "image":
+        achado = _RE_CODIGO_IMOVEL.search(m.get("conteudo") or "")
+        if achado:
+            return fotos.get(int(achado.group(1)))
+    return None
+
+
+@router.get(
+    "/conversas/{corretor_id}/mensagens/{mensagem_id}/midia",
+    summary="Arquivo de áudio de uma mensagem (só para o administrador da imobiliária)",
+)
+async def midia_da_mensagem(
+    corretor_id: UUID,
+    mensagem_id: UUID,
+    admin=Depends(require_admin),
+):
+    async with get_session(admin.tenant_id) as session:
+        row = await session.execute(
+            text("""
+                SELECT midia_url FROM mensagens
+                WHERE id = :id AND corretor_id = :cid AND tenant_id = :tid
+            """),
+            {"id": str(mensagem_id), "cid": str(corretor_id), "tid": str(admin.tenant_id)},
+        )
+        r = row.first()
+    if not r or not r.midia_url or not r.midia_url.startswith(PREFIXO_S3):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Mídia não encontrada.")
+
+    arquivo = await ler_midia(r.midia_url)
+    if not arquivo:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Arquivo não encontrado.")
+    dados, content_type = arquivo
+    return Response(
+        content=dados,
+        media_type=content_type,
+        headers={"Cache-Control": "private, max-age=3600"},
+    )
+
+
 @router.get(
     "/conversas/{corretor_id}/mensagens",
     response_model=ConversaDetalheResponse,
@@ -339,6 +407,15 @@ async def listar_mensagens_conversa(
             limit=limit,
         )
 
+        codigos = sorted({
+            int(a.group(1))
+            for m in mensagens
+            if m["tipo"] == "image" and not m.get("midia_url")
+            for a in [_RE_CODIGO_IMOVEL.search(m.get("conteudo") or "")]
+            if a
+        })
+        fotos = await _fotos_por_codigo(session, admin.tenant_id, codigos)
+
         await AuditoriaService(session).registrar(
             tenant_id=admin.tenant_id,
             corretor_id=None,
@@ -352,7 +429,13 @@ async def listar_mensagens_conversa(
         corretor_id=corretor.id,
         corretor_nome=corretor.nome,
         telefone_mascarado=mask_phone(corretor.telefone),
-        mensagens=[MensagemResponse(**m) for m in mensagens],
+        mensagens=[
+            MensagemResponse(
+                **{k: v for k, v in m.items() if k != "midia_url"},
+                midia=_midia_da_mensagem(m, corretor_id, fotos),
+            )
+            for m in mensagens
+        ],
     )
 
 
