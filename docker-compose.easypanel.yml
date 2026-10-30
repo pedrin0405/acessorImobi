@@ -29,7 +29,7 @@ services:
       context: .
       dockerfile: infra/docker/Dockerfile.web
       args:
-        NEXT_PUBLIC_API_URL: https://api.${BASE_DOMAIN}
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-https://api.${BASE_DOMAIN}}
     restart: unless-stopped
     environment:
       <<: *api-env
