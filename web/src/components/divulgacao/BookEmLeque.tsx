@@ -41,7 +41,7 @@ export default function BookEmLeque() {
                   </div>
                 ) : i === 1 ? (
                   <div className="h-full flex flex-col">
-                    <div className="h-[48%] overflow-hidden"><FotoImovel className="w-full h-full object-cover" /></div>
+                    <div className="h-[48%] overflow-hidden"><FotoImovel tom={2} className="w-full h-full" /></div>
                     <div className="p-4 flex-1 flex flex-col gap-2">
                       <p className="text-[18px] leading-tight">{pg.l1}</p>
                       <p className="text-[12px] opacity-70">{pg.l2}</p>

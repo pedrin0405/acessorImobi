@@ -18,7 +18,7 @@ export function DemoBook() {
         <div className="rounded-3xl overflow-hidden" style={painel}>
           <FotoImovel tom={0} className="h-44 w-full" />
           <div className="p-5 space-y-1.5">
-            <p className="text-[15px] font-semibold" style={{ color: "var(--text)" }}>Apartamento · Orla 14</p>
+            <p className="text-[15px] font-semibold" style={{ color: "var(--text)" }}>Apartamento · Vista lago</p>
             <p className="text-[13px]" style={{ color: "var(--text-3)" }}>2 quartos · 1 vaga · 55 m²</p>
             <p className="text-[19px] font-bold pt-1" style={{ color: "var(--accent-text)" }}>R$ 480.000</p>
             <p className="text-[12.5px] font-semibold underline underline-offset-2 pt-1" style={{ color: "var(--accent-text)" }}>Ver anúncio no site</p>
@@ -38,7 +38,7 @@ export function DemoBook() {
           <div className="absolute left-0 bottom-0 w-[66%] h-[84%] rounded-2xl overflow-hidden -rotate-[3deg]" style={{ background: "#fcfaf6", boxShadow: "0 24px 44px -18px rgb(17 26 31 / .4)", border: "1px solid rgb(17 26 31 / .08)" }}>
             <FotoImovel tom={0} className="h-[42%] w-full" />
             <div className="p-4 space-y-2.5">
-              <p className="text-[15px] font-bold leading-tight" style={{ color: "#17140f" }}>Apartamento · Orla 14</p>
+              <p className="text-[15px] font-bold leading-tight" style={{ color: "#17140f" }}>Apartamento · Vista lago</p>
               <p className="text-[19px] font-bold" style={{ color: "#2f7a58" }}>R$ 480.000</p>
               {[["Quartos", "2"], ["Vagas", "1"], ["Área", "55 m²"]].map(([r, v]) => (
                 <div key={r} className="flex justify-between text-[11.5px] pb-1" style={{ borderBottom: "1px solid rgb(23 20 15 / .12)", color: "#4a4540" }}>
@@ -93,7 +93,7 @@ export function DemoAnalise() {
   return (
     <div className="mx-auto w-full max-w-[560px] grid sm:grid-cols-[1fr_1.1fr] gap-4 items-start" aria-label="Exemplo ilustrativo: conversa com um cliente, análise e resposta sugerida">
       <div className="rounded-3xl p-4 space-y-2 text-[13px]" style={painel}>
-        <p className="max-w-[88%] rounded-2xl rounded-bl-md px-3 py-2" style={{ background: "var(--card-2)", color: "var(--text-2)" }}>Boa tarde! Ainda tem aquele de 2 quartos na Orla?</p>
+        <p className="max-w-[88%] rounded-2xl rounded-bl-md px-3 py-2" style={{ background: "var(--card-2)", color: "var(--text-2)" }}>Boa tarde! Ainda tem aquele de 2 quartos com vista para o lago?</p>
         <p className="max-w-[88%] ml-auto rounded-2xl rounded-br-md px-3 py-2" style={{ background: "var(--accent-soft)", color: "var(--accent-text)" }}>Tenho sim. Te mando as fotos.</p>
         <p className="max-w-[88%] rounded-2xl rounded-bl-md px-3 py-2" style={{ background: "var(--card-2)", color: "var(--text-2)" }}>Perfeito. Dá para visitar sábado? E aceita FGTS?</p>
       </div>
@@ -102,7 +102,7 @@ export function DemoAnalise() {
           <p className="text-[14px] font-semibold" style={{ color: "var(--text)" }}>Análise</p>
           <span className="px-2.5 h-6 inline-flex items-center rounded-full text-[11.5px] font-semibold" style={{ background: "color-mix(in srgb, var(--danger) 12%, transparent)", color: "var(--danger)" }}>Quente</span>
         </div>
-        <p className="text-[13px] leading-relaxed" style={{ color: "var(--text-2)" }}>Cliente quer 2 quartos na Orla e pediu visita no sábado. Perguntou sobre FGTS.</p>
+        <p className="text-[13px] leading-relaxed" style={{ color: "var(--text-2)" }}>Cliente quer 2 quartos com vista para o lago e pediu visita no sábado. Perguntou sobre FGTS.</p>
         <div>
           <p className="text-[12px] font-semibold mb-1" style={{ color: "var(--text-3)" }}>Próximo passo</p>
           <p className="text-[13px]" style={{ color: "var(--text-2)" }}>Confirmar horário da visita e a condição de FGTS.</p>

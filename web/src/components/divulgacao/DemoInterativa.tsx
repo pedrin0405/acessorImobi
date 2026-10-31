@@ -9,15 +9,15 @@ import { useMovimentoReduzido } from "./ganchos";
 type Id = "opcoes" | "book" | "resposta";
 
 const PEDIDOS: { id: Id; rotulo: string }[] = [
-  { id: "opcoes", rotulo: "3 opções na Orla" },
+  { id: "opcoes", rotulo: "3 opções com vista para o lago" },
   { id: "book", rotulo: "Monte um book em PDF" },
   { id: "resposta", rotulo: "O que respondo ao cliente?" },
 ];
 
 const IMOVEIS = [
-  { tom: 0, titulo: "Apartamento · Orla 14", dados: "2 quartos · 1 vaga · 55 m²" },
-  { tom: 1, titulo: "Flat · Graciosa", dados: "1 quarto · 35 m²" },
-  { tom: 2, titulo: "Cobertura · Orla 14", dados: "3 suítes · 2 vagas · 140 m²" },
+  { tom: 0, titulo: "Apartamento · Vista lago", dados: "2 quartos · 1 vaga · 55 m²" },
+  { tom: 1, titulo: "Casa · Condomínio fechado", dados: "3 suítes · 2 vagas · 180 m²" },
+  { tom: 2, titulo: "Casa · Piscina e área gourmet", dados: "4 suítes · 4 vagas · 320 m²" },
 ];
 
 function Realce({ texto }: { texto: string }) {

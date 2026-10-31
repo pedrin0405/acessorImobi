@@ -5,7 +5,7 @@ import Revelar from "./Revelar";
 import { useProgressoDeRolagem } from "./ganchos";
 
 const PEDIDOS = [
-  "3 opções na Orla",
+  "3 opções com vista para o lago",
   "registra a Ana: 2 quartos, até 3 mil",
   "agenda visita amanhã às 15h",
   "move o Carlos para proposta",

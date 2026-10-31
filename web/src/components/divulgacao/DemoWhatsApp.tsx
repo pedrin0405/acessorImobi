@@ -4,9 +4,9 @@ import { MarcaSimbolo } from "@/components/marca/Marca";
 import FotoImovel from "./FotoImovel";
 
 const IMOVEIS = [
-  { tom: 0, titulo: "Apartamento · Orla 14", dados: "2 quartos · 1 vaga · 55 m²", valor: "R$ 480.000" },
-  { tom: 1, titulo: "Flat · Graciosa", dados: "1 quarto · 35 m²", valor: "R$ 430.000" },
-  { tom: 2, titulo: "Cobertura · Orla 14", dados: "3 suítes · 2 vagas · 140 m²", valor: "R$ 1.150.000" },
+  { tom: 0, titulo: "Apartamento · Vista lago", dados: "2 quartos · 1 vaga · 55 m²", valor: "R$ 480.000" },
+  { tom: 1, titulo: "Casa · Condomínio fechado", dados: "3 suítes · 2 vagas · 180 m²", valor: "R$ 1.280.000" },
+  { tom: 2, titulo: "Casa · Piscina e área gourmet", dados: "4 suítes · 4 vagas · 320 m²", valor: "R$ 1.150.000" },
 ];
 
 /** Conversa de exemplo com o agente no WhatsApp. É ilustrativa: os imóveis e valores não são reais. */
@@ -31,7 +31,7 @@ export default function DemoWhatsApp({ atrasoBase = 0.9 }: { atrasoBase?: number
 
         <div className="px-3.5 py-4 space-y-2.5 text-[13.5px] leading-snug" style={{ minHeight: 520 }}>
           <p className="dv-msg ml-auto max-w-[82%] rounded-2xl rounded-br-md px-3.5 py-2.5" style={{ ...t(0), background: "#1d5c42", color: "#eaf6f0" }}>
-            me dá 3 opções de apartamento na Orla de Palmas, para venda
+            me dá 3 opções de apartamento com vista para o lago, para venda
           </p>
 
           <div className="dv-msg max-w-[94%] rounded-2xl rounded-bl-md p-2.5 space-y-2" style={{ ...t(0.55), background: "#16211f", color: "#d9e6e1" }}>
@@ -59,7 +59,7 @@ export default function DemoWhatsApp({ atrasoBase = 0.9 }: { atrasoBase?: number
                 <FileText className="w-5 h-5" aria-hidden />
               </span>
               <div className="min-w-0">
-                <p className="text-[13px] font-semibold truncate" style={{ color: "#f1f6f4" }}>Book · Orla de Palmas.pdf</p>
+                <p className="text-[13px] font-semibold truncate" style={{ color: "#f1f6f4" }}>Book · Vista para o lago.pdf</p>
                 <p className="text-[11.5px]" style={{ color: "#8fa49d" }}>3 imóveis, com fotos e dados</p>
               </div>
             </div>
