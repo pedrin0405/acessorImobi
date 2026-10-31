@@ -128,6 +128,7 @@ function CartaoImovel({ m, onAbrir }: { m: MensagemChat; onAbrir: (src: string) 
       quartos={d.specs.quartos}
       vagas={d.specs.vagas}
       area={d.specs.area}
+      link={(m.conteudo || "").match(/https?:\/\/[^\s]+/)?.[0] ?? null}
       onFoto={onAbrir}
     />
   );

@@ -52,6 +52,7 @@ function CardImovel({ i, onAbrir }: { i: ImovelResumo; onAbrir: () => void }) {
         area={i.area_m2 ? Math.round(i.area_m2) : null}
         destaque={i.destaque}
         inativo={!i.ativo}
+        link={i.link}
         onAbrir={onAbrir}
         ariaLabel={`${i.tipo || "Imóvel"} em ${i.bairro || "local não informado"}, ${rotuloFinalidade(i.finalidade)}, ${precoDoImovel(i)}, código ${i.codigo}`}
       />

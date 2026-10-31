@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { Bath, BedDouble, Car, Check, Home, Ruler, Star } from "lucide-react";
+import { Bath, BedDouble, Car, Check, ExternalLink, Home, Ruler, Star } from "lucide-react";
 
 export interface CartaoImovelProps {
   foto?: string | null;
@@ -27,6 +27,8 @@ export interface CartaoImovelProps {
   /** Clique na foto (ampliar), usado onde o cartão em si não é clicável. */
   onFoto?: (src: string) => void;
   ariaLabel?: string;
+  /** Endereço do anúncio no site da imobiliária; vira o atalho "Ver no site" no pé do cartão. */
+  link?: string | null;
 }
 
 /** Cartão de imóvel com foto: o mesmo desenho nas Conversas, na página Imóveis e nas ações rápidas. */
@@ -78,7 +80,7 @@ export default function CartaoImovel(p: CartaoImovelProps) {
   );
 
   const corpo = (
-    <div className="p-3 space-y-2 flex-1">
+    <div className={`p-3 space-y-2 flex-1 ${p.link ? "pb-10" : ""}`}>
       <h4 className="text-[13px] font-semibold leading-snug line-clamp-2" style={{ color: "var(--text)" }}>{p.titulo}</h4>
       {specs.length > 0 && (
         <ul className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs tabular-nums" style={{ color: "var(--text-3)" }} aria-label="Características">
@@ -104,8 +106,23 @@ export default function CartaoImovel(p: CartaoImovelProps) {
     boxShadow: p.selecionado ? "0 0 0 1px var(--accent)" : undefined,
   };
 
+  const atalho = p.link ? (
+    <a
+      href={p.link}
+      target="_blank"
+      rel="noopener noreferrer"
+      onClick={(e) => e.stopPropagation()}
+      className="absolute left-3 bottom-2.5 z-[1] inline-flex items-center gap-1 text-[11px] font-semibold hover:underline"
+      style={{ color: "var(--accent-text)" }}
+      aria-label={`Abrir o anúncio no site: ${p.titulo}`}
+    >
+      <ExternalLink className="w-3 h-3" aria-hidden /> Ver no site
+    </a>
+  ) : null;
+
   if (p.onAbrir) {
     return (
+      <div className="relative h-full">
       <button
         type="button"
         onClick={p.onAbrir}
@@ -117,14 +134,17 @@ export default function CartaoImovel(p: CartaoImovelProps) {
         {imagem}
         {corpo}
       </button>
+      {atalho}
+      </div>
     );
   }
   return (
-    <article className="group rounded-2xl overflow-hidden flex flex-col h-full" style={estilo}>
+    <article className="group relative rounded-2xl overflow-hidden flex flex-col h-full" style={estilo}>
       {p.onFoto && foto ? (
         <button type="button" onClick={() => p.onFoto!(foto)} className="block w-full" aria-label={`Ampliar foto: ${p.titulo}`}>{imagem}</button>
       ) : imagem}
       {corpo}
+      {atalho}
     </article>
   );
 }

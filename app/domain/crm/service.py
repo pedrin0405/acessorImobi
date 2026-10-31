@@ -16,6 +16,7 @@ import structlog
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql import text
 
+from app.domain.imovel.link import base_do_tenant, link_do_site
 from app.domain.imovel.service import ImovelService
 
 log = structlog.get_logger()
@@ -889,9 +890,17 @@ class CrmService:
             """),
             {"tid": str(tenant_id), "cod": codigo_imoview},
         )
+        base = await base_do_tenant(self._session, tenant_id)
+
+        def com_link(im: Dict[str, Any]) -> Dict[str, Any]:
+            return {**im, "link": link_do_site(base, im.get("codigo"), im.get("titulo"), im.get("tipo"), im.get("bairro"))} if im.get("codigo") else im
+
         lista = []
         for a in rows.fetchall():
             d = a.detalhes or {}
+            for chave in ("visitas", "propostas", "negocios"):
+                d[chave] = [{**x, "imovel": com_link(x.get("imovel") or {})} for x in d.get(chave) or []]
+            d["carrinho"] = [com_link(x) for x in d.get("carrinho") or []]
             lista.append({k: _json(v) for k, v in {
                 "codigo": a.codigo, "finalidade": "Venda" if a.finalidade == 2 else "Aluguel", "funil": a.funil,
                 "situacao": a.situacao, "situacao_tipo": a.situacao_tipo, "estagio": a.estagio, "fase": a.fase,

@@ -271,7 +271,7 @@ export default function AcoesRapidas({
                       const sel = codigos.includes(i.codigo);
                       return (
                         <li key={i.codigo}>
-                          <CartaoImovel foto={i.foto_url} titulo={`${i.tipo || "Imóvel"} · ${i.bairro || "—"}`} preco={precoDoImovel(i)} selo={rotuloFinalidade(i.finalidade)} codigo={i.codigo} quartos={i.quartos} vagas={i.vagas} area={i.area_m2 ? Math.round(i.area_m2) : null} selecionado={sel} onAbrir={() => alternarImovel(i.codigo)} ariaLabel={`${sel ? "Remover" : "Escolher"} ${i.tipo || "imóvel"} ${i.bairro || ""}, código ${i.codigo}`} />
+                          <CartaoImovel foto={i.foto_url} titulo={`${i.tipo || "Imóvel"} · ${i.bairro || "—"}`} preco={precoDoImovel(i)} selo={rotuloFinalidade(i.finalidade)} codigo={i.codigo} quartos={i.quartos} vagas={i.vagas} area={i.area_m2 ? Math.round(i.area_m2) : null} link={i.link} selecionado={sel} onAbrir={() => alternarImovel(i.codigo)} ariaLabel={`${sel ? "Remover" : "Escolher"} ${i.tipo || "imóvel"} ${i.bairro || ""}, código ${i.codigo}`} />
                         </li>
                       );
                     })}

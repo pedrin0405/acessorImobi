@@ -17,7 +17,7 @@ function Cartao({ im, legenda, selo }: { im: ImovelImoview | null; legenda?: Rea
       <CartaoImovel
         foto={im.foto} titulo={im.titulo || [im.tipo, im.bairro].filter(Boolean).join(" · ") || `Imóvel ${im.codigo}`}
         subtitulo={[im.bairro, im.cidade].filter(Boolean).join(" · ")} preco={im.valor || undefined} codigo={im.codigo} selo={selo}
-        quartos={im.quartos} vagas={im.vagas} area={im.area}
+        quartos={im.quartos} vagas={im.vagas} area={im.area} link={im.link}
       />
     </div>
   );

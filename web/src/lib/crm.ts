@@ -199,6 +199,8 @@ export async function corretoresAtivos(
 export interface ImovelImoview {
   codigo: number; titulo: string | null; tipo: string | null; valor: string | null; bairro: string | null; cidade: string | null;
   quartos: string | number | null; vagas: string | number | null; area: string | number | null; foto: string | null;
+  /** Anúncio no site da imobiliária (montado pelo portal a partir do site configurado). */
+  link?: string | null;
 }
 
 export interface AtendimentoImoview {

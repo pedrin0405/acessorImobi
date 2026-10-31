@@ -108,7 +108,14 @@ export function DadosSecao({ onAuthError }: { onAuthError: (e: unknown) => boole
           <Linha rotulo="País" htmlFor="d-pais"><Seletor id="d-pais" value={f.pais} onChange={(e) => set("pais", e.target.value)}><option value="+55">+55 Brasil</option><option value="+351">+351 Portugal</option><option value="+1">+1 Estados Unidos</option></Seletor></Linha>
           <Linha rotulo="Telefone" htmlFor="d-tel"><Entrada id="d-tel" inputMode="tel" placeholder="(11) 3000-0000" value={mascaraTelefone(f.telefone)} onChange={(e) => set("telefone", e.target.value.replace(/\D/g, ""))} /></Linha>
           <Linha rotulo="E-mail de contato" htmlFor="d-mail"><Entrada id="d-mail" type="email" value={f.email_contato} onChange={(e) => set("email_contato", e.target.value)} maxLength={255} /></Linha>
-          <Linha rotulo="Site" htmlFor="d-site"><Entrada id="d-site" inputMode="url" placeholder="https://" value={f.site} onChange={(e) => set("site", e.target.value)} maxLength={200} /></Linha>
+          <Linha rotulo="Site" ajuda="Base dos links dos imóveis (cartões, book e ações rápidas)" htmlFor="d-site">
+            <Entrada id="d-site" inputMode="url" placeholder="https://www.suaimobiliaria.com.br" value={f.site} onChange={(e) => set("site", e.target.value)} maxLength={200} />
+            <p className="text-[11.5px] mt-1.5 break-all" style={{ color: "var(--text-4)" }}>
+              {f.site.trim()
+                ? <>Exemplo de link: {(/^https?:\/\//i.test(f.site.trim()) ? f.site.trim() : `https://${f.site.trim()}`).replace(/\/+$/, "")}/imovel/casa-3-suites-piscina/15746</>
+                : "Sem o site, os imóveis não levam o link do anúncio."}
+            </p>
+          </Linha>
           <Linha rotulo="Cidade e UF" htmlFor="d-cidade">
             <div className="flex gap-2"><Entrada id="d-cidade" value={f.cidade} onChange={(e) => set("cidade", e.target.value)} maxLength={120} /><Seletor aria-label="UF" value={f.uf} onChange={(e) => set("uf", e.target.value)} className="!w-24 shrink-0"><option value="">UF</option>{UFS.map((u) => <option key={u}>{u}</option>)}</Seletor></div>
           </Linha>
