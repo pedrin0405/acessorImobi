@@ -17,7 +17,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pydantic import BaseModel, field_validator
 from sqlalchemy import text
 
-from app.api.middleware.auth import require_admin
+from app.api.middleware.auth import exigir_proprio, require_admin, require_portal
 from app.domain.corretor import foto as foto_corretor
 from app.domain.corretor.service import CorretorService
 from app.domain.auditoria.service import AuditoriaService
@@ -299,11 +299,13 @@ async def criar_corretor(
 )
 async def listar_corretores(
     status_filter: Optional[str] = None,
-    admin=Depends(require_admin),
+    admin=Depends(require_portal),
 ):
     async with get_session(admin.tenant_id) as session:
         service = CorretorService(session)
         corretores = await service.listar(tenant_id=admin.tenant_id, status=status_filter)
+    if admin.escopo:
+        corretores = [c for c in corretores if c.id == admin.escopo]
 
     return [
         _corretor_response(c, admin.tenant_id)
@@ -348,7 +350,8 @@ async def decidir_corretor(
 
 
 @router.get("/corretores/{corretor_id}/foto", summary="Foto do corretor (a do perfil do WhatsApp)")
-async def foto_do_corretor(corretor_id: UUID, admin=Depends(require_admin)):
+async def foto_do_corretor(corretor_id: UUID, admin=Depends(require_portal)):
+    exigir_proprio(admin, corretor_id)
     async with get_session(admin.tenant_id) as session:
         ref = (await session.execute(
             text("SELECT foto_ref FROM corretores WHERE id = :id AND tenant_id = :tid"),
@@ -362,7 +365,8 @@ async def foto_do_corretor(corretor_id: UUID, admin=Depends(require_admin)):
 
 
 @router.post("/corretores/{corretor_id}/foto/atualizar", summary="Busca de novo a foto do WhatsApp do corretor")
-async def atualizar_foto_do_corretor(corretor_id: UUID, admin=Depends(require_admin)):
+async def atualizar_foto_do_corretor(corretor_id: UUID, admin=Depends(require_portal)):
+    exigir_proprio(admin, corretor_id)
     resultado = await foto_corretor.sincronizar_foto(admin.tenant_id, corretor_id)
     mensagens = {
         "atualizada": "Foto atualizada a partir do WhatsApp.",
@@ -386,10 +390,12 @@ async def atualizar_foto_do_corretor(corretor_id: UUID, admin=Depends(require_ad
     response_model=List[ConversaResumoResponse],
     summary="Lista as conversas do WhatsApp com a última mensagem",
 )
-async def listar_conversas(admin=Depends(require_admin)):
+async def listar_conversas(admin=Depends(require_portal)):
     async with get_session(admin.tenant_id) as session:
         service = ConversaService(session)
         conversas = await service.listar_conversas(admin.tenant_id)
+    if admin.escopo:
+        conversas = [c for c in conversas if str(c["corretor_id"]) == str(admin.escopo)]
 
     return [
         ConversaResumoResponse(
@@ -445,8 +451,9 @@ def _midia_da_mensagem(m: Dict[str, Any], corretor_id: UUID, fotos: Dict[int, st
 async def midia_da_mensagem(
     corretor_id: UUID,
     mensagem_id: UUID,
-    admin=Depends(require_admin),
+    admin=Depends(require_portal),
 ):
+    exigir_proprio(admin, corretor_id)
     async with get_session(admin.tenant_id) as session:
         row = await session.execute(
             text("""
@@ -478,12 +485,13 @@ async def midia_da_mensagem(
 async def listar_mensagens_conversa(
     corretor_id: UUID,
     limit: int = Query(100, ge=1, le=200),
-    admin=Depends(require_admin),
+    admin=Depends(require_portal),
 ):
     """
     Retorna a conversa em ordem cronológica. O acesso ao conteúdo é
     registrado na auditoria append-only, conforme a política do tenant.
     """
+    exigir_proprio(admin, corretor_id)
     async with get_session(admin.tenant_id) as session:
         corretor = await CorretorService(session).get_by_id(corretor_id, admin.tenant_id)
         if not corretor:
@@ -500,14 +508,15 @@ async def listar_mensagens_conversa(
         })
         fotos = await _fotos_por_codigo(session, admin.tenant_id, codigos)
 
-        await AuditoriaService(session).registrar(
-            tenant_id=admin.tenant_id,
-            corretor_id=None,
-            acao="visualizar_conversa",
-            entidade="corretor",
-            entidade_id=str(corretor_id),
-            origem="portal",
-        )
+        if not admin.escopo:
+            await AuditoriaService(session).registrar(
+                tenant_id=admin.tenant_id,
+                corretor_id=None,
+                acao="visualizar_conversa",
+                entidade="corretor",
+                entidade_id=str(corretor_id),
+                origem="portal",
+            )
 
     return ConversaDetalheResponse(
         corretor_id=corretor.id,
@@ -733,15 +742,17 @@ async def _painel_ou_404(session, admin, corretor_id: UUID):
 
 
 @router.get("/corretores/{corretor_id}/painel", summary="Painel do corretor: dados, carteira, atividade e preferências")
-async def painel_do_corretor(corretor_id: UUID, admin=Depends(require_admin)):
+async def painel_do_corretor(corretor_id: UUID, admin=Depends(require_portal)):
+    exigir_proprio(admin, corretor_id)
     async with get_session(admin.tenant_id) as session:
         return await _painel_ou_404(session, admin, corretor_id)
 
 
 @router.patch("/corretores/{corretor_id}", summary="Edita nome e e-mail do corretor")
-async def editar_corretor(corretor_id: UUID, body: CorretorDadosRequest, admin=Depends(require_admin)):
+async def editar_corretor(corretor_id: UUID, body: CorretorDadosRequest, admin=Depends(require_portal)):
     from app.domain.corretor import painel
 
+    exigir_proprio(admin, corretor_id)
     async with get_session(admin.tenant_id) as session:
         await _painel_ou_404(session, admin, corretor_id)
         try:
@@ -752,9 +763,10 @@ async def editar_corretor(corretor_id: UUID, body: CorretorDadosRequest, admin=D
 
 
 @router.put("/corretores/{corretor_id}/assistente", summary="Preferências do assistente deste corretor")
-async def preferencias_do_corretor(corretor_id: UUID, body: CorretorAssistenteRequest, admin=Depends(require_admin)):
+async def preferencias_do_corretor(corretor_id: UUID, body: CorretorAssistenteRequest, admin=Depends(require_portal)):
     from app.domain.corretor import painel
 
+    exigir_proprio(admin, corretor_id)
     async with get_session(admin.tenant_id) as session:
         await _painel_ou_404(session, admin, corretor_id)
         return await painel.salvar_assistente(session, admin.tenant_id, corretor_id, body.model_dump())

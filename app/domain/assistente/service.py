@@ -162,10 +162,14 @@ def titulo_da_conversa(texto: str) -> str:
 
 
 class AssistenteService:
-    def __init__(self, session: AsyncSession, tenant_id: UUID, admin_id: UUID):
+    def __init__(self, session: AsyncSession, tenant_id: UUID, admin_id: UUID, corretor_id: Optional[UUID] = None):
         self._session = session
         self._tenant_id = tenant_id
         self._admin_id = admin_id
+        # Corretor logado: as conversas são dele (a coluna admin_id guarda o id de quem conversa) e os dados ficam na carteira dele.
+        self._corretor_id = corretor_id
+        if corretor_id:
+            self._admin_id = corretor_id
         self._blocos: List[Dict[str, Any]] = []
         self._crm = CrmService(session)
 
@@ -276,8 +280,9 @@ class AssistenteService:
 
     async def arquivo_do_book(self, mensagem_id: UUID) -> Optional[Tuple[bytes, str, str]]:
         r = (await self._session.execute(
-            text("SELECT blocos FROM assistente_mensagens WHERE id = :id AND tenant_id = :tid"),
-            {"id": str(mensagem_id), "tid": str(self._tenant_id)},
+            text("""SELECT m.blocos FROM assistente_mensagens m JOIN assistente_conversas c ON c.id = m.conversa_id
+                    WHERE m.id = :id AND m.tenant_id = :tid AND c.admin_id = :aid"""),
+            {"id": str(mensagem_id), "tid": str(self._tenant_id), "aid": str(self._admin_id)},
         )).first()
         for b in (r.blocos if r else None) or []:
             if b.get("tipo") == "book" and b.get("ref"):
@@ -310,7 +315,7 @@ class AssistenteService:
             return f"{_DIAS[d.weekday()][:3]} {d:%d/%m %H:%M}"
 
         try:
-            agenda = await self._crm.agenda(self._tenant_id, None, de=inicio, ate=inicio + timedelta(days=2))
+            agenda = await self._crm.agenda(self._tenant_id, self._corretor_id, de=inicio, ate=inicio + timedelta(days=2))
             atrasadas = [a for a in agenda if a.get("atrasada")]
             proximas = [a for a in agenda if a.get("inicio") and not a.get("atrasada")]
             linhas.append(f"Agenda de hoje e amanhã ({len(proximas)}):")
@@ -319,7 +324,7 @@ class AssistenteService:
                 linhas.append(f"Atividades atrasadas ({len(atrasadas)}):")
                 linhas += [f"- {a['titulo']} ({a.get('corretor_nome') or '?'}) era {quando(a['inicio'])}" for a in atrasadas[:5]]
 
-            previsao = await self._crm.forecast(self._tenant_id)
+            previsao = await self._crm.forecast(self._tenant_id, self._corretor_id)
             linhas.append(
                 f"Funil: {previsao['quantidade']} negócios abertos, {_reais(previsao['total'])} no total, "
                 f"{_reais(previsao['esperado'])} previstos (valor × probabilidade)."
@@ -328,7 +333,7 @@ class AssistenteService:
                 f"- {e['etapa']}: {e['quantidade']} negócios, {_reais(e['total'])}" + (f", {e['travados']} travados" if e["travados"] else "")
                 for e in previsao["etapas"] if e["quantidade"]
             ]
-            travados = [n for n in await self._crm.listar_negocios(self._tenant_id, status="aberto") if n.get("travado")]
+            travados = [n for n in await self._crm.listar_negocios(self._tenant_id, self._corretor_id, status="aberto") if n.get("travado")]
             if travados:
                 linhas.append("Negócios travados:")
                 linhas += [
@@ -336,7 +341,7 @@ class AssistenteService:
                     for n in travados[:6]
                 ]
 
-            leads = await self._crm.listar_leads(self._tenant_id, limit=200)
+            leads = await self._crm.listar_leads(self._tenant_id, corretor_id=self._corretor_id, limit=200)
             quentes = [l for l in leads if l.get("temperatura") == "quente"]
             linhas.append(f"Carteira: {len(leads)} clientes, {len(quentes)} quentes.")
             linhas += [
@@ -344,6 +349,8 @@ class AssistenteService:
             ]
 
             conversas = await ConversaService(self._session).listar_conversas(self._tenant_id)
+            if self._corretor_id:
+                conversas = [c for c in conversas if str(c.get("corretor_id")) == str(self._corretor_id)]
             sem_resposta = [c for c in conversas if c.get("nao_respondidas")]
             if sem_resposta:
                 linhas.append("Conversas com o agente aguardando resposta:")
@@ -358,8 +365,14 @@ class AssistenteService:
         agora = datetime.now(fuso)
         contexto = await self._contexto(fuso)
         return (
-            f"Você é o Acessor, o assistente de IA do portal da imobiliária {nome}. Quem fala com você "
-            "é o administrador/gestor, que acompanha a equipe de corretores.\n\n"
+            (
+                f"Você é o Acessor, o assistente de IA do portal da imobiliária {nome}. Quem fala com você "
+                "é um corretor, e você só conhece a carteira, o funil e a agenda DELE (nada dos outros corretores nem da "
+                "gestão da imobiliária); se perguntarem por dados de outras pessoas, diga que não tem acesso.\n\n"
+                if self._corretor_id else
+                f"Você é o Acessor, o assistente de IA do portal da imobiliária {nome}. Quem fala com você "
+                "é o administrador/gestor, que acompanha a equipe de corretores.\n\n"
+            ) +
             f"Agora é {_DIAS[agora.weekday()]}-feira, {agora:%d/%m/%Y %H:%M}.\n\n"
             "## Como responder\n"
             "- Português do Brasil, direto e útil, como um colega de confiança. Respostas curtas; só alongue "
@@ -409,7 +422,7 @@ class AssistenteService:
 
     async def _executar(self, nome: str, args: Dict[str, Any]) -> str:
         if nome == "buscar_leads":
-            leads = await self._crm.listar_leads(self._tenant_id, termo=args.get("termo"), limit=10, incluir_sem_responsavel=True)
+            leads = await self._crm.listar_leads(self._tenant_id, corretor_id=self._corretor_id, termo=args.get("termo"), limit=10, incluir_sem_responsavel=not self._corretor_id)
             if not leads:
                 return f"Nenhum cliente encontrado para '{args.get('termo', '')}'."
             return "\n".join(
@@ -439,7 +452,7 @@ class AssistenteService:
                 [i["codigo"] for i in imoveis], args.get("formato") == "book", (args.get("titulo") or "").strip()[:80] or None,
             )
         if nome == "match_lead":
-            leads = await self._crm.listar_leads(self._tenant_id, termo=args.get("cliente"), limit=1, incluir_sem_responsavel=True)
+            leads = await self._crm.listar_leads(self._tenant_id, corretor_id=self._corretor_id, termo=args.get("cliente"), limit=1, incluir_sem_responsavel=not self._corretor_id)
             if not leads:
                 return f"Não achei o cliente '{args.get('cliente', '')}'."
             lead = leads[0]

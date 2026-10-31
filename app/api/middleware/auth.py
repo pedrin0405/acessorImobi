@@ -29,6 +29,13 @@ class AdminPrincipal:
     tenant_id: UUID
     admin_id: UUID
     role: str = "admin"
+    # Só nas rotas do portal compartilhado (`require_portal`): o corretor logado. Com ele, tudo é limitado à carteira dele.
+    corretor_id: Optional[UUID] = None
+
+    @property
+    def escopo(self) -> Optional[UUID]:
+        """O corretor a que os dados ficam restritos; None para a equipe da imobiliária (vê tudo)."""
+        return self.corretor_id
 
 
 @dataclass
@@ -89,6 +96,51 @@ async def require_admin(
         tenant_id=UUID(tenant_id),
         admin_id=admin_id,
     )
+
+
+def exigir_proprio(principal: "AdminPrincipal", corretor_id: UUID) -> None:
+    """Corretor só acessa o que é dele; o de outro corretor vale 404 (não revela que existe)."""
+    if principal.corretor_id and principal.corretor_id != corretor_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+
+
+async def require_portal(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
+) -> AdminPrincipal:
+    """
+    Rotas que o portal da imobiliária e o do corretor compartilham. A equipe da imobiliária entra como sempre; o
+    corretor entra com `corretor_id` preenchido e cada rota limita o que ele enxerga à carteira dele. Rotas que só a
+    equipe pode usar continuam em `require_admin`, onde o token de corretor vale 404.
+    """
+    payload = _decode_token(credentials)
+    if payload.get("role") == "corretor":
+        tenant_id, corretor_id = payload.get("tid"), payload.get("cid")
+        if not tenant_id or not corretor_id:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+        await _checar_corretor_ativo(UUID(tenant_id), UUID(corretor_id))
+        return AdminPrincipal(
+            sub=payload["sub"], tenant_id=UUID(tenant_id), admin_id=UUID("00000000-0000-0000-0000-000000000000"),
+            role="corretor", corretor_id=UUID(corretor_id),
+        )
+    return await require_admin(credentials)
+
+
+async def _checar_corretor_ativo(tenant_id: UUID, corretor_id: UUID) -> None:
+    """Corretor bloqueado ou removido perde o acesso na hora, mesmo com o token ainda dentro da validade."""
+    from sqlalchemy import text
+
+    from app.shared.database import get_session
+
+    async with get_session(tenant_id) as session:
+        ativo = (await session.execute(
+            text("SELECT status FROM corretores WHERE id = :id AND tenant_id = :tid"),
+            {"id": str(corretor_id), "tid": str(tenant_id)},
+        )).scalar()
+    if ativo != "active":
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Sessão encerrada. Entre novamente.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
 
 async def _checar_sessao_admin(tenant_id: UUID, admin_id: UUID, payload: dict) -> None:

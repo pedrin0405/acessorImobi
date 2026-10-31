@@ -5,7 +5,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
-from app.api.middleware.auth import require_admin
+from app.api.middleware.auth import require_admin, require_portal
 from app.domain.auditoria.service import AuditoriaService
 from app.domain.configuracoes.padroes import ConfigErro
 from app.domain.configuracoes.service import ConfiguracoesService
@@ -150,7 +150,7 @@ async def excluir(body: ConfirmacaoEntrada, admin=Depends(require_admin)):
 # --- Dados da imobiliária ---------------------------------------------------------
 
 @router.get("/imobiliaria")
-async def imobiliaria(admin=Depends(require_admin)):
+async def imobiliaria(admin=Depends(require_portal)):
     async with get_session(admin.tenant_id) as s:
         return await ConfiguracoesService(s, admin.tenant_id).imobiliaria()
 
@@ -218,7 +218,7 @@ async def salvar_roleta(body: Livre, admin=Depends(require_admin)):
 # --- Campos & Opções ----------------------------------------------------------------------------
 
 @router.get("/listas")
-async def listas(admin=Depends(require_admin)):
+async def listas(admin=Depends(require_portal)):
     async with get_session(admin.tenant_id) as s:
         return await ConfiguracoesService(s, admin.tenant_id).listas()
 
@@ -237,7 +237,7 @@ async def salvar_lista(chave: str, body: ListaEntrada, admin=Depends(require_adm
 # --- Localidades -------------------------------------------------------------------------------------
 
 @router.get("/localidades/cidades")
-async def cidades(q: Optional[str] = Query(None, max_length=100), arquivadas: bool = False, admin=Depends(require_admin)):
+async def cidades(q: Optional[str] = Query(None, max_length=100), arquivadas: bool = False, admin=Depends(require_portal)):
     async with get_session(admin.tenant_id) as s:
         return await ConfiguracoesService(s, admin.tenant_id).cidades(q, arquivadas)
 
@@ -268,7 +268,7 @@ async def excluir_cidade(cidade_id: UUID, admin=Depends(require_admin)):
 
 
 @router.get("/localidades/cidades/{cidade_id}/bairros")
-async def bairros(cidade_id: UUID, admin=Depends(require_admin)):
+async def bairros(cidade_id: UUID, admin=Depends(require_portal)):
     async with get_session(admin.tenant_id) as s:
         return await ConfiguracoesService(s, admin.tenant_id).bairros(cidade_id)
 
@@ -309,7 +309,7 @@ async def importar_localidades(admin=Depends(require_admin)):
 # --- Tipos de atividade e lembretes ----------------------------------------------------------------------------
 
 @router.get("/tipos-atividade")
-async def tipos_atividade(admin=Depends(require_admin)):
+async def tipos_atividade(admin=Depends(require_portal)):
     async with get_session(admin.tenant_id) as s:
         svc = ConfiguracoesService(s, admin.tenant_id)
         usos = await svc.usos_de_tipos()
@@ -330,7 +330,7 @@ async def salvar_tipos(body: ListaEntrada, admin=Depends(require_admin)):
 
 
 @router.get("/lembretes")
-async def lembretes(admin=Depends(require_admin)):
+async def lembretes(admin=Depends(require_portal)):
     async with get_session(admin.tenant_id) as s:
         return await ConfiguracoesService(s, admin.tenant_id).lembretes()
 

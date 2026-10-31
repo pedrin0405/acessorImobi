@@ -347,6 +347,41 @@ async def espelhar_negocios(s, tenant_id: UUID, config: Dict[str, Any], ids: Opt
     return movidos
 
 
+async def vincular_corretores(s, tenant_id: UUID) -> int:
+    """
+    Leads e negócios sem responsável passam para o corretor do portal que tem o mesmo nome do corretor do atendimento
+    no Imoview (comparação sem acento nem caixa). Quem já tem responsável não é mexido: a atribuição manual vale mais.
+    """
+    tid = str(tenant_id)
+    por_nome = {
+        sem_acento(r.nome): str(r.id)
+        for r in (await s.execute(text("SELECT id, nome FROM corretores WHERE tenant_id = :tid AND status = 'active' AND nome IS NOT NULL"), {"tid": tid})).fetchall()
+    }
+    if not por_nome:
+        return 0
+    alvos = (await s.execute(
+        text("""
+            SELECT DISTINCT ON (l.id) l.id AS lead, a.corretor_nome
+            FROM crm_leads l JOIN imoview_atendimentos a ON a.tenant_id = l.tenant_id AND a.lead_codigo = l.codigo_imoview
+            WHERE l.tenant_id = :tid AND l.corretor_id IS NULL AND l.status <> 'arquivado' AND a.corretor_nome IS NOT NULL
+            ORDER BY l.id, (a.situacao_tipo = 'em_atendimento') DESC, a.alterado_em DESC NULLS LAST
+        """), {"tid": tid},
+    )).fetchall()
+    pares = [(str(r.lead), por_nome[sem_acento(r.corretor_nome)]) for r in alvos if sem_acento(r.corretor_nome) in por_nome]
+    for i in range(0, len(pares), 1000):
+        lote = pares[i:i + 1000]
+        dados = {"tid": tid, "leads": [p[0] for p in lote], "corretores": [p[1] for p in lote]}
+        await s.execute(
+            text("""UPDATE crm_leads l SET corretor_id = d.corretor FROM
+                    (SELECT unnest(CAST(:leads AS uuid[])) AS lead, unnest(CAST(:corretores AS uuid[])) AS corretor) d
+                    WHERE l.tenant_id = :tid AND l.id = d.lead AND l.corretor_id IS NULL"""), dados)
+        await s.execute(
+            text("""UPDATE crm_negocios n SET corretor_id = d.corretor FROM
+                    (SELECT unnest(CAST(:leads AS uuid[])) AS lead, unnest(CAST(:corretores AS uuid[])) AS corretor) d
+                    WHERE n.tenant_id = :tid AND n.lead_id = d.lead AND n.corretor_id IS NULL"""), dados)
+    return len(pares)
+
+
 async def resolver_pendencias(s, tenant_id: UUID, ids: Optional[List[str]]) -> Dict[str, int]:
     """Pendência cujo destino o Imoview já alcançou vira 'aplicada'; se o Imoview mudou para outra coisa, é descartada."""
     escopo = "" if ids is None else "AND p.negocio_id = ANY(CAST(:ids AS uuid[]))"
@@ -376,11 +411,12 @@ async def aplicar(tenant_id: UUID, forcar: bool = False) -> Dict[str, int]:
     """Liga os atendimentos aos negócios e, com o espelho ligado, aplica o que mudou (ou tudo, se `forcar`)."""
     async with get_session(tenant_id) as s:
         config = ler_config((await s.execute(text("SELECT dados FROM tenants WHERE id = :tid"), {"tid": str(tenant_id)})).scalar())
+        vinculados = await vincular_corretores(s, tenant_id)
         mudaram = await ligar_negocios(s, tenant_id)
         alvo = None if forcar else mudaram
         pend = await resolver_pendencias(s, tenant_id, alvo)
         movidos = await espelhar_negocios(s, tenant_id, config, alvo)
-    return {"ligados": len(mudaram), "movidos": movidos, **pend}
+    return {"ligados": len(mudaram), "movidos": movidos, "corretores_vinculados": vinculados, **pend}
 
 
 # --- Portal -> Imoview (fila de pendências) ---------------------------------------------------

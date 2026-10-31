@@ -5,7 +5,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel, Field
 
-from app.api.middleware.auth import require_admin
+from app.api.middleware.auth import require_admin, require_portal
 from app.domain.book import config as cfg
 from app.domain.book.modelos import ModelosBook
 from app.domain.book.servico import BookErro, codigos_de_exemplo, gerar_book
@@ -31,7 +31,7 @@ def _erro(e: Exception) -> HTTPException:
 
 
 @router.get("/modelos", summary="Modelos de book da imobiliária")
-async def listar(admin=Depends(require_admin)):
+async def listar(admin=Depends(require_portal)):
     async with get_session(admin.tenant_id) as s:
         return {"modelos": await ModelosBook(s).listar(admin.tenant_id), "layouts": cfg.LAYOUTS, "padrao_config": cfg.PADRAO}
 
@@ -75,7 +75,7 @@ async def excluir(modelo_id: UUID, admin=Depends(require_admin)):
 
 
 @router.post("/previa", summary="Prévia em PDF com imóveis reais da carteira")
-async def previa(body: PreviaEntrada, admin=Depends(require_admin)):
+async def previa(body: PreviaEntrada, admin=Depends(require_portal)):
     async with get_session(admin.tenant_id) as s:
         try:
             codigos = body.codigos or await codigos_de_exemplo(s, admin.tenant_id)

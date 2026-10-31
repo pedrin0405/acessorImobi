@@ -13,7 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 from sqlalchemy.sql import text
 
-from app.api.middleware.auth import require_admin
+from app.api.middleware.auth import require_admin, require_portal
 from app.domain.auditoria.service import AuditoriaService
 from app.domain.crm.acoes import lead_por_nome
 from app.domain.crm.service import ROTULO_TIPO, CrmError, CrmService
@@ -89,6 +89,38 @@ def _erro(e: CrmError) -> HTTPException:
     return HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))
 
 
+def _nao_achou(o: str = "Não encontrado.") -> HTTPException:
+    return HTTPException(status_code=404, detail=o)
+
+
+def _meu_negocio(admin, negocio: Optional[dict]) -> None:
+    """Corretor só mexe em negócio dele; de outro corretor (ou sem dono) é como se não existisse."""
+    if admin.escopo and (not negocio or str(negocio.get("corretor_id")) != str(admin.escopo)):
+        raise _nao_achou("Negócio não encontrado.")
+
+
+async def _meu_lead(session, admin, lead_id: UUID) -> None:
+    if not admin.escopo:
+        return
+    dono = (await session.execute(
+        text("SELECT corretor_id FROM crm_leads WHERE id = :id AND tenant_id = :tid"),
+        {"id": str(lead_id), "tid": str(admin.tenant_id)},
+    )).first()
+    if not dono or str(dono.corretor_id) != str(admin.escopo):
+        raise _nao_achou("Cliente não encontrado.")
+
+
+async def _minha_atividade(session, admin, atividade_id: UUID) -> None:
+    if not admin.escopo:
+        return
+    dono = (await session.execute(
+        text("SELECT corretor_id FROM crm_atividades WHERE id = :id AND tenant_id = :tid"),
+        {"id": str(atividade_id), "tid": str(admin.tenant_id)},
+    )).first()
+    if not dono or str(dono.corretor_id) != str(admin.escopo):
+        raise _nao_achou("Atividade não encontrada.")
+
+
 async def _corretor_ativo(session, tenant_id: UUID, corretor_id: UUID) -> None:
     row = await session.execute(
         text("SELECT 1 FROM corretores WHERE id = :cid AND tenant_id = :tid AND status = 'active'"),
@@ -104,7 +136,7 @@ async def _fuso_tenant(session, tenant_id: UUID) -> ZoneInfo:
 
 
 @router.get("/etapas", summary="Etapas do funil com probabilidade e alerta")
-async def listar_etapas(admin=Depends(require_admin)):
+async def listar_etapas(admin=Depends(require_portal)):
     async with get_session(admin.tenant_id) as session:
         return await CrmService(session).etapas(admin.tenant_id)
 
@@ -131,20 +163,22 @@ async def listar_negocios(
     status_negocio: Optional[str] = Query("aberto", alias="status", pattern="^(aberto|ganho|perdido|todos)$"),
     corretor_id: Optional[UUID] = None,
     termo: Optional[str] = None,
-    admin=Depends(require_admin),
+    admin=Depends(require_portal),
 ):
     async with get_session(admin.tenant_id) as session:
         return await CrmService(session).listar_negocios(
             admin.tenant_id,
-            corretor_id=corretor_id,
+            corretor_id=admin.escopo or corretor_id,
             status=None if status_negocio == "todos" else status_negocio,
             termo=termo,
         )
 
 
 @router.post("/negocios", status_code=status.HTTP_201_CREATED, summary="Abre um negócio para um corretor")
-async def criar_negocio(body: NegocioCreate, admin=Depends(require_admin)):
+async def criar_negocio(body: NegocioCreate, admin=Depends(require_portal)):
     """Usa o cliente da carteira do corretor com esse nome, ou cria um novo."""
+    if admin.escopo:
+        body = body.model_copy(update={"corretor_id": admin.escopo})  # corretor só abre negócio para si
     async with get_session(admin.tenant_id) as session:
         await _corretor_ativo(session, admin.tenant_id, body.corretor_id)
         crm = CrmService(session)
@@ -171,18 +205,19 @@ async def criar_negocio(body: NegocioCreate, admin=Depends(require_admin)):
 
 
 @router.get("/negocios/{negocio_id}", summary="Detalhe do negócio com histórico")
-async def detalhe_negocio(negocio_id: UUID, admin=Depends(require_admin)):
+async def detalhe_negocio(negocio_id: UUID, admin=Depends(require_portal)):
     async with get_session(admin.tenant_id) as session:
         crm = CrmService(session)
         negocio = await crm.get_negocio(admin.tenant_id, negocio_id)
         if not negocio:
             raise HTTPException(status_code=404, detail="Negócio não encontrado.")
+        _meu_negocio(admin, negocio)
         negocio["eventos"] = await crm.eventos(admin.tenant_id, negocio_id)
         return negocio
 
 
 @router.patch("/negocios/{negocio_id}", summary="Move de etapa, ganha ou perde um negócio")
-async def atualizar_negocio(negocio_id: UUID, body: NegocioUpdate, admin=Depends(require_admin)):
+async def atualizar_negocio(negocio_id: UUID, body: NegocioUpdate, admin=Depends(require_portal)):
     if not body.etapa and not body.status and body.valor is None and body.fechamento_previsto is None:
         raise HTTPException(status_code=422, detail="Informe a etapa, o status ou o valor.")
     async with get_session(admin.tenant_id) as session:
@@ -190,6 +225,7 @@ async def atualizar_negocio(negocio_id: UUID, body: NegocioUpdate, admin=Depends
         atual = await crm.get_negocio(admin.tenant_id, negocio_id)
         if not atual:
             raise HTTPException(status_code=404, detail="Negócio não encontrado.")
+        _meu_negocio(admin, atual)
         try:
             negocio = await crm.mover_negocio(
                 admin.tenant_id, negocio_id,
@@ -217,9 +253,9 @@ async def atualizar_negocio(negocio_id: UUID, body: NegocioUpdate, admin=Depends
 
 
 @router.get("/forecast", summary="Previsão ponderada por etapa (valor × probabilidade)")
-async def forecast(corretor_id: Optional[UUID] = None, admin=Depends(require_admin)):
+async def forecast(corretor_id: Optional[UUID] = None, admin=Depends(require_portal)):
     async with get_session(admin.tenant_id) as session:
-        return await CrmService(session).forecast(admin.tenant_id, corretor_id)
+        return await CrmService(session).forecast(admin.tenant_id, admin.escopo or corretor_id)
 
 
 def _responsavel_valido(corretor: Optional[str]) -> None:
@@ -237,9 +273,10 @@ async def funil(
     termo: Optional[str] = Query(None, max_length=100),
     ordem: str = Query("recentes", pattern="^(recentes|valor)$"),
     por_coluna: int = Query(30, ge=5, le=100),
-    admin=Depends(require_admin),
+    admin=Depends(require_portal),
 ):
     _responsavel_valido(corretor)
+    corretor = str(admin.escopo) if admin.escopo else corretor
     async with get_session(admin.tenant_id) as session:
         return await CrmService(session).funil(
             admin.tenant_id, None if status_negocio == "todos" else status_negocio, corretor, termo, ordem, por_coluna,
@@ -255,9 +292,10 @@ async def funil_negocios(
     ordem: str = Query("recentes", pattern="^(recentes|valor)$"),
     deslocamento: int = Query(0, ge=0),
     limite: int = Query(30, ge=1, le=100),
-    admin=Depends(require_admin),
+    admin=Depends(require_portal),
 ):
     _responsavel_valido(corretor)
+    corretor = str(admin.escopo) if admin.escopo else corretor
     async with get_session(admin.tenant_id) as session:
         return await CrmService(session).negocios_pagina(
             admin.tenant_id, None if status_negocio == "todos" else status_negocio, corretor, termo,
@@ -266,8 +304,9 @@ async def funil_negocios(
 
 
 @router.get("/clientes/{lead_id}", summary="Ficha completa do cliente")
-async def ficha_cliente(lead_id: UUID, admin=Depends(require_admin)):
+async def ficha_cliente(lead_id: UUID, admin=Depends(require_portal)):
     async with get_session(admin.tenant_id) as session:
+        await _meu_lead(session, admin, lead_id)
         ficha = await CrmService(session).ficha_cliente(admin.tenant_id, lead_id)
         if not ficha:
             raise HTTPException(status_code=404, detail="Cliente não encontrado.")
@@ -281,15 +320,16 @@ class ClienteUpdate(BaseModel):
 
 
 @router.get("/clientes/{lead_id}/linha-do-tempo", summary="Tudo que aconteceu com o cliente: corretor, cliente, funil, agenda e Imoview")
-async def linha_do_tempo_cliente(lead_id: UUID, limite: int = Query(400, ge=10, le=1000), admin=Depends(require_admin)):
+async def linha_do_tempo_cliente(lead_id: UUID, limite: int = Query(400, ge=10, le=1000), admin=Depends(require_portal)):
     from app.domain.crm import linha_do_tempo
 
     async with get_session(admin.tenant_id) as session:
+        await _meu_lead(session, admin, lead_id)
         return await linha_do_tempo.montar(session, admin.tenant_id, lead_id, limite)
 
 
 @router.get("/negocios/{negocio_id}/completo", summary="Cartão do Fluxo por inteiro: negócio, ficha do cliente e linha do tempo")
-async def negocio_completo(negocio_id: UUID, admin=Depends(require_admin)):
+async def negocio_completo(negocio_id: UUID, admin=Depends(require_portal)):
     from app.domain.crm import linha_do_tempo
 
     async with get_session(admin.tenant_id) as session:
@@ -297,6 +337,7 @@ async def negocio_completo(negocio_id: UUID, admin=Depends(require_admin)):
         negocio = await crm.get_negocio(admin.tenant_id, negocio_id)
         if not negocio:
             raise HTTPException(status_code=404, detail="Negócio não encontrado.")
+        _meu_negocio(admin, negocio)
         lead_id = UUID(str(negocio["lead_id"]))
         negocio["esperado"] = round(negocio["valor"] * negocio["probabilidade"] / 100, 2)
         return {
@@ -308,8 +349,9 @@ async def negocio_completo(negocio_id: UUID, admin=Depends(require_admin)):
 
 
 @router.patch("/clientes/{lead_id}", summary="Ajusta temperatura, observações ou situação do cliente")
-async def atualizar_cliente(lead_id: UUID, body: ClienteUpdate, admin=Depends(require_admin)):
+async def atualizar_cliente(lead_id: UUID, body: ClienteUpdate, admin=Depends(require_portal)):
     async with get_session(admin.tenant_id) as session:
+        await _meu_lead(session, admin, lead_id)
         crm = CrmService(session)
         try:
             await crm.atualizar_lead(admin.tenant_id, lead_id, observacoes=body.observacoes, temperatura=body.temperatura, status=body.status)
@@ -322,21 +364,21 @@ async def atualizar_cliente(lead_id: UUID, body: ClienteUpdate, admin=Depends(re
 async def listar_leads(
     termo: Optional[str] = None,
     corretor_id: Optional[UUID] = None,
-    admin=Depends(require_admin),
+    admin=Depends(require_portal),
 ):
     async with get_session(admin.tenant_id) as session:
         return await CrmService(session).listar_leads(
-            admin.tenant_id, corretor_id=corretor_id, termo=termo, limit=500
+            admin.tenant_id, corretor_id=admin.escopo or corretor_id, termo=termo, limit=500
         )
 
 
 @router.post("/leads", status_code=status.HTTP_201_CREATED, summary="Cria um cliente; sem corretor, a Roleta de leads distribui")
-async def criar_lead(body: LeadCreate, admin=Depends(require_admin)):
+async def criar_lead(body: LeadCreate, admin=Depends(require_portal)):
     from app.domain.configuracoes.service import ConfiguracoesService
 
     async with get_session(admin.tenant_id) as session:
         via_roleta = False
-        corretor_id = body.corretor_id
+        corretor_id = admin.escopo or body.corretor_id  # corretor cadastra para si; a roleta é da equipe
         if corretor_id:
             await _corretor_ativo(session, admin.tenant_id, corretor_id)
         else:
@@ -367,8 +409,10 @@ async def listar_clientes(
     ordem: str = Query("recentes", pattern="^(recentes|atualizados|nome)$"),
     pagina: int = Query(1, ge=1),
     por_pagina: int = Query(25, ge=5, le=100),
-    admin=Depends(require_admin),
+    admin=Depends(require_portal),
 ):
+    if admin.escopo:
+        responsavel = str(admin.escopo)
     if responsavel and responsavel != "sem":
         try:
             UUID(responsavel)
@@ -415,8 +459,9 @@ async def atribuir_clientes(body: AtribuirClientes, admin=Depends(require_admin)
 
 
 @router.get("/leads/{lead_id}/match", summary="Imóveis que combinam com o perfil do lead")
-async def match_lead(lead_id: UUID, admin=Depends(require_admin)):
+async def match_lead(lead_id: UUID, admin=Depends(require_portal)):
     async with get_session(admin.tenant_id) as session:
+        await _meu_lead(session, admin, lead_id)
         crm = CrmService(session)
         lead = await crm.get_lead(admin.tenant_id, lead_id)
         if not lead:
@@ -430,7 +475,7 @@ async def agenda(
     corretor_id: Optional[UUID] = None,
     de: Optional[date] = None,
     ate: Optional[date] = None,
-    admin=Depends(require_admin),
+    admin=Depends(require_portal),
 ):
     """Sem `de`/`ate`: de hoje a `dias` dias. Com eles: o período pedido (limitado a 100 dias)."""
     async with get_session(admin.tenant_id) as session:
@@ -442,11 +487,13 @@ async def agenda(
             fim = datetime(ate.year, ate.month, ate.day, tzinfo=fuso) + timedelta(days=1) if ate else inicio + timedelta(days=dias)
             if fim <= inicio or fim - inicio > timedelta(days=100):
                 raise HTTPException(status_code=422, detail="Período inválido (máximo de 100 dias).")
-        return await CrmService(session).agenda(admin.tenant_id, corretor_id, de=inicio, ate=fim)
+        return await CrmService(session).agenda(admin.tenant_id, admin.escopo or corretor_id, de=inicio, ate=fim)
 
 
 @router.post("/atividades", status_code=status.HTTP_201_CREATED, summary="Agenda uma atividade para um corretor")
-async def criar_atividade(body: AtividadeCreate, admin=Depends(require_admin)):
+async def criar_atividade(body: AtividadeCreate, admin=Depends(require_portal)):
+    if admin.escopo:
+        body = body.model_copy(update={"corretor_id": admin.escopo})
     async with get_session(admin.tenant_id) as session:
         await _corretor_ativo(session, admin.tenant_id, body.corretor_id)
         crm = CrmService(session)
@@ -481,10 +528,11 @@ async def criar_atividade(body: AtividadeCreate, admin=Depends(require_admin)):
 
 
 @router.patch("/atividades/{atividade_id}", summary="Conclui ou cancela uma atividade")
-async def atualizar_atividade(atividade_id: UUID, body: AtividadeUpdate, admin=Depends(require_admin)):
+async def atualizar_atividade(atividade_id: UUID, body: AtividadeUpdate, admin=Depends(require_portal)):
     if not body.status and not body.data:
         raise HTTPException(status_code=422, detail="Informe o status ou a nova data.")
     async with get_session(admin.tenant_id) as session:
+        await _minha_atividade(session, admin, atividade_id)
         inicio = None
         if body.data:
             fuso = await _fuso_tenant(session, admin.tenant_id)

@@ -9,7 +9,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pydantic import BaseModel, Field
 
-from app.api.middleware.auth import require_admin
+from app.api.middleware.auth import require_portal
 from app.domain.assistente.service import AssistenteErro, AssistenteService
 from app.shared.database import get_session
 
@@ -36,42 +36,42 @@ def _http(e: AssistenteErro) -> HTTPException:
 
 
 @router.get("/conversas", summary="Conversas do administrador com o assistente (mais recentes primeiro)")
-async def listar(q: Optional[str] = Query(None, max_length=100), admin=Depends(require_admin)):
+async def listar(q: Optional[str] = Query(None, max_length=100), admin=Depends(require_portal)):
     async with get_session(admin.tenant_id) as session:
-        return await AssistenteService(session, admin.tenant_id, admin.admin_id).listar(q)
+        return await AssistenteService(session, admin.tenant_id, admin.admin_id, admin.escopo).listar(q)
 
 
 @router.post("/conversas", status_code=status.HTTP_201_CREATED, summary="Inicia uma conversa")
-async def criar(body: ConversaCriar, admin=Depends(require_admin)):
+async def criar(body: ConversaCriar, admin=Depends(require_portal)):
     async with get_session(admin.tenant_id) as session:
-        servico = AssistenteService(session, admin.tenant_id, admin.admin_id)
+        servico = AssistenteService(session, admin.tenant_id, admin.admin_id, admin.escopo)
         return await (servico.criar(body.titulo) if body.titulo else servico.criar())
 
 
 @router.get("/conversas/{conversa_id}", summary="Mensagens de uma conversa")
-async def mensagens(conversa_id: UUID, admin=Depends(require_admin)):
+async def mensagens(conversa_id: UUID, admin=Depends(require_portal)):
     async with get_session(admin.tenant_id) as session:
         try:
-            return await AssistenteService(session, admin.tenant_id, admin.admin_id).mensagens(conversa_id)
+            return await AssistenteService(session, admin.tenant_id, admin.admin_id, admin.escopo).mensagens(conversa_id)
         except AssistenteErro as e:
             raise _http(e)
 
 
 @router.delete("/conversas/{conversa_id}", status_code=status.HTTP_204_NO_CONTENT, summary="Apaga uma conversa")
-async def excluir(conversa_id: UUID, admin=Depends(require_admin)):
+async def excluir(conversa_id: UUID, admin=Depends(require_portal)):
     async with get_session(admin.tenant_id) as session:
         try:
-            await AssistenteService(session, admin.tenant_id, admin.admin_id).excluir(conversa_id)
+            await AssistenteService(session, admin.tenant_id, admin.admin_id, admin.escopo).excluir(conversa_id)
         except AssistenteErro as e:
             raise _http(e)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.post("/conversas/{conversa_id}/mensagens", summary="Envia uma pergunta e recebe a resposta da IA")
-async def perguntar(conversa_id: UUID, body: MensagemEntrada, admin=Depends(require_admin)):
+async def perguntar(conversa_id: UUID, body: MensagemEntrada, admin=Depends(require_portal)):
     async with get_session(admin.tenant_id) as session:
         try:
-            return await AssistenteService(session, admin.tenant_id, admin.admin_id).responder(
+            return await AssistenteService(session, admin.tenant_id, admin.admin_id, admin.escopo).responder(
                 conversa_id, body.texto, [a.model_dump() for a in body.anexos]
             )
         except AssistenteErro as e:
@@ -79,9 +79,9 @@ async def perguntar(conversa_id: UUID, body: MensagemEntrada, admin=Depends(requ
 
 
 @router.get("/mensagens/{mensagem_id}/book", summary="PDF do book gerado numa resposta do assistente")
-async def book_da_mensagem(mensagem_id: UUID, admin=Depends(require_admin)):
+async def book_da_mensagem(mensagem_id: UUID, admin=Depends(require_portal)):
     async with get_session(admin.tenant_id) as session:
-        arquivo = await AssistenteService(session, admin.tenant_id, admin.admin_id).arquivo_do_book(mensagem_id)
+        arquivo = await AssistenteService(session, admin.tenant_id, admin.admin_id, admin.escopo).arquivo_do_book(mensagem_id)
     if not arquivo:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Book não encontrado.")
     dados, tipo, nome = arquivo

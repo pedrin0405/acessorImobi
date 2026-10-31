@@ -3,7 +3,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from app.api.middleware.auth import require_admin
+from app.api.middleware.auth import require_admin, require_portal
 from app.domain.imovel import consulta
 from app.domain.imovel.sync import carregar_credenciais, obter_status
 from app.shared.database import get_session
@@ -31,7 +31,7 @@ async def listar(
     pagina: int = Query(1, ge=1, le=10000),
     por_pagina: int = Query(consulta.POR_PAGINA_PADRAO, ge=1, le=consulta.POR_PAGINA_MAX),
     facetas: bool = True,
-    admin=Depends(require_admin),
+    admin=Depends(require_portal),
 ):
     filtros = {
         "busca": busca, "finalidade": finalidade, "tipo": tipo, "bairro": bairro, "cidade": cidade,
@@ -50,7 +50,7 @@ async def listar(
 
 
 @router.get("/{codigo}", summary="Detalhe de um imóvel (completa do Imoview se faltar descrição ou fotos)")
-async def detalhe(codigo: int, admin=Depends(require_admin)):
+async def detalhe(codigo: int, admin=Depends(require_portal)):
     async with get_session(admin.tenant_id) as session:
         imovel = await consulta.obter_detalhe(session, admin.tenant_id, codigo)
     if not imovel:
