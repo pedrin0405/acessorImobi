@@ -2,7 +2,8 @@
 
 import React, { useEffect, useState } from "react";
 import { BookOpen, Download, ExternalLink, FileText, Loader2, Send } from "lucide-react";
-import { fetchApi } from "@/lib/api";
+import { fetchApi, tokenCorretorId } from "@/lib/api";
+import { useEhCorretor } from "@/components/portal/papel";
 import { brl } from "@/lib/crm";
 import CartaoImovel from "@/components/crm/imoveis/CartaoImovel";
 
@@ -29,14 +30,15 @@ export type BlocoIA =
 interface CorretorAtivo { id: string; nome: string | null; telefone_mascarado: string; status: string }
 
 function EnviarAoCorretor({ bloco, onAuthError }: { bloco: BlocoIA; onAuthError: (e: unknown) => boolean }) {
+  const ehCorretor = useEhCorretor();  // o corretor recebe no próprio WhatsApp: sem escolher destinatário
   const [aberto, setAberto] = useState(false);
   const [corretores, setCorretores] = useState<CorretorAtivo[] | null>(null);
-  const [destino, setDestino] = useState("");
+  const [destino, setDestino] = useState(ehCorretor ? tokenCorretorId() : "");
   const [enviando, setEnviando] = useState(false);
   const [aviso, setAviso] = useState<{ ok: boolean; texto: string } | null>(null);
 
   useEffect(() => {
-    if (!aberto || corretores) return;
+    if (!aberto || corretores || ehCorretor) return;
     fetchApi("/admin/corretores")
       .then(async (r) => (r.ok ? ((await r.json()) as CorretorAtivo[]).filter((c) => c.status === "active") : []))
       .then(setCorretores)
@@ -62,7 +64,11 @@ function EnviarAoCorretor({ bloco, onAuthError }: { bloco: BlocoIA; onAuthError:
 
   return (
     <div className="mt-3">
-      {!aberto ? (
+      {ehCorretor ? (
+        <button type="button" onClick={enviar} disabled={enviando} className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl text-sm hover:bg-[var(--hover-solid)] disabled:opacity-50" style={{ border: "1px solid var(--line-2)", color: "var(--text-2)" }}>
+          {enviando ? <Loader2 className="w-4 h-4 animate-spin" aria-hidden /> : <Send className="w-4 h-4" aria-hidden />}Enviar para o meu WhatsApp
+        </button>
+      ) : !aberto ? (
         <button type="button" onClick={() => setAberto(true)} className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl text-sm hover:bg-[var(--hover-solid)]" style={{ border: "1px solid var(--line-2)", color: "var(--text-2)" }}>
           <Send className="w-4 h-4" aria-hidden />Enviar a um corretor
         </button>

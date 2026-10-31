@@ -1,6 +1,7 @@
 "use client";
 
 import AvatarDoCorretor from "@/components/corretor/AvatarDoCorretor";
+import { useEhCorretor } from "@/components/portal/papel";
 import React, { useCallback, useEffect, useState } from "react";
 import { ArrowUpRight, CalendarDays, Globe, Home, Mail, MapPin, Phone, X } from "lucide-react";
 import { AtendimentoImoview, brl, Perfil } from "@/lib/crm";
@@ -97,6 +98,7 @@ export default function FichaCliente({
   atribuindo: boolean;
   onMaisDetalhes?: (id: string) => void;
 }) {
+  const ehCorretor = useEhCorretor();  // atribuir cliente é da gestão
   const api = useApi(onAuthError);
   const [ficha, setFicha] = useState<Ficha | null>(null);
   const [imoveis, setImoveis] = useState<ImovelMatch[] | null>(null);
@@ -186,6 +188,7 @@ export default function FichaCliente({
       )}
       {erro && <div className="mt-3"><Aviso tom="erro">{erro}</Aviso></div>}
 
+      {!ehCorretor && (
       <Secao titulo="Responsável">
         <p className="text-sm mb-2" style={{ color: "var(--text-3)" }}>{ficha.corretor_nome ? <span className="inline-flex items-center gap-2"><AvatarDoCorretor id={ficha.corretor_id} nome={ficha.corretor_nome} tamanho={28} />Com <strong style={{ color: "var(--text)" }}>{ficha.corretor_nome}</strong></span> : "Ninguém ainda: o cliente está no funil, na etapa Lead, aguardando um corretor."}</p>
         <div className="flex gap-2">
@@ -193,6 +196,7 @@ export default function FichaCliente({
           <Botao variante="primario" onClick={() => { onAtribuir(ficha.id, destino); setDestino(""); }} disabled={!destino} carregando={atribuindo}>Atribuir</Botao>
         </div>
       </Secao>
+      )}
 
       <Secao titulo="Contato">
         <ul className="space-y-2 text-sm">

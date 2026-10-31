@@ -101,7 +101,7 @@ class ConversaPortalService:
 
     # --- Mensagens ----------------------------------------------------------
 
-    async def mensagens(self, corretor_id: UUID, limit: int = 200) -> List[Dict[str, Any]]:
+    async def mensagens(self, corretor_id: UUID, limit: int = 200, com_notas: bool = True) -> List[Dict[str, Any]]:
         rows = await self._session.execute(
             text("""
                 SELECT id, direcao, tipo, conteudo, transcricao, status, midia_url, trace, created_at
@@ -134,9 +134,9 @@ class ConversaPortalService:
         notas = await self._session.execute(
             text("""
                 SELECT id, autor, texto, created_at FROM conversa_notas
-                WHERE tenant_id = :tid AND corretor_id = :cid ORDER BY created_at DESC LIMIT 100
+                WHERE tenant_id = :tid AND corretor_id = :cid AND :com_notas ORDER BY created_at DESC LIMIT 100
             """),
-            {"tid": str(self._tenant_id), "cid": str(corretor_id)},
+            {"tid": str(self._tenant_id), "cid": str(corretor_id), "com_notas": com_notas},
         )
         for n in notas.fetchall():
             itens.append({

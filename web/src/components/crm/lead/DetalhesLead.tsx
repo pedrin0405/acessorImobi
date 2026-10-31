@@ -1,5 +1,6 @@
 "use client";
 
+import { useEhCorretor } from "@/components/portal/papel";
 import React, { useCallback, useEffect, useState } from "react";
 import { ArrowLeft, Check, Copy, MessageCircle, Phone } from "lucide-react";
 import { Aviso, Botao, Iniciais, Selo, Seletor, useApi } from "@/components/configuracoes/ui";
@@ -27,6 +28,7 @@ export default function DetalhesLead({
 }: {
   leadId: string; corretores: { id: string; nome: string }[]; onVoltar: () => void; onAuthError: (e: unknown) => boolean; onMudou?: () => void; rotuloVoltar?: string;
 }) {
+  const ehCorretor = useEhCorretor();
   const api = useApi(onAuthError);
   const [ficha, setFicha] = useState<Ficha | null>(null);
   const [tempo, setTempo] = useState<LinhaDoTempoDados | null>(null);
@@ -150,10 +152,12 @@ export default function DetalhesLead({
               <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: COR_TEMP[ficha.temperatura] }} aria-hidden />
               <Seletor aria-label="Temperatura" value={ficha.temperatura} disabled={salvando} onChange={(e) => ajustar({ temperatura: e.target.value })}><option value="quente">Quente</option><option value="morno">Morno</option><option value="frio">Frio</option></Seletor>
             </div>
+            {!ehCorretor && (
             <div className="flex gap-2">
               <Seletor aria-label="Atribuir este cliente a" value={destino} onChange={(e) => setDestino(e.target.value)}><option value="">{ficha.corretor_nome ? "Passar para…" : "Atribuir a…"}</option>{corretores.filter((c) => c.id !== ficha.corretor_id).map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}</Seletor>
               <Botao variante="primario" onClick={atribuir} disabled={!destino} carregando={atribuindo}>Atribuir</Botao>
             </div>
+            )}
           </div>
         </div>
         {erro && <div className="mt-3"><Aviso tom="erro">{erro}</Aviso></div>}

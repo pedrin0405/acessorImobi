@@ -16,7 +16,7 @@ export interface StatusIntegracao {
  * sincronização está na fila ou rodando, consulta o andamento a cada 2 s e avisa
  * (`onConcluida`) quando ela termina.
  */
-export function useSincronizacao(onAuthError: (e: unknown) => boolean, onConcluida?: () => void) {
+export function useSincronizacao(onAuthError: (e: unknown) => boolean, onConcluida?: () => void, ativo = true) {
   const [status, setStatus] = useState<StatusIntegracao | null>(null);
   const [erro, setErro] = useState<string | null>(null);
   const anterior = useRef<string | null>(null);
@@ -32,6 +32,7 @@ export function useSincronizacao(onAuthError: (e: unknown) => boolean, onConclui
   }, []);
 
   const carregar = useCallback(async () => {
+    if (!ativo) return;  // o corretor não acompanha a integração com o Imoview (é da gestão)
     try {
       const res = await fetchApi("/admin/integracoes/imoview");
       if (!res.ok) throw new Error("falha");
@@ -40,7 +41,7 @@ export function useSincronizacao(onAuthError: (e: unknown) => boolean, onConclui
     } catch (e) {
       if (!onAuthError(e)) setErro("Não foi possível consultar a integração com o Imoview.");
     }
-  }, [aplicar, onAuthError]);
+  }, [aplicar, onAuthError, ativo]);
 
   useEffect(() => {
     carregar();

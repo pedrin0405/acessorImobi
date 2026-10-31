@@ -180,3 +180,20 @@ async def test_leads_do_imoview_sem_dono_vao_para_o_corretor_de_mesmo_nome(cenar
         await s.execute(text("UPDATE crm_leads SET codigo_imoview = NULL WHERE id = :l"), {"l": ids["a"]["lead"]})
         await s.execute(text("UPDATE corretores SET nome = 'Teste a' WHERE id = :c"), {"c": ids["a"]["corretor"]})
     assert dono == ids["a"]["corretor"] and neg == ids["a"]["corretor"]
+
+
+async def test_notas_internas_da_equipe_nao_chegam_ao_corretor(cenario, cliente):
+    tid, ids = cenario
+    a = ids["a"]["corretor"]
+    async with get_admin_session() as s:
+        await s.execute(text("INSERT INTO conversa_notas (tenant_id, corretor_id, autor, texto) VALUES (:t, :c, 'gestor', 'nota secreta da equipe')"), {"t": tid, "c": a})
+    try:
+        r = await cliente.get(f"/admin/conversas/{a}/mensagens", headers=_auth(tid, a))
+        assert r.status_code == 200 and "nota secreta" not in r.text
+        async with get_admin_session() as s:
+            aid = (await s.execute(text("SELECT id FROM tenant_admins WHERE tenant_id = :t LIMIT 1"), {"t": tid})).scalar()
+        h = {"Authorization": "Bearer " + create_access_token("admin", tenant_id=tid, role="admin", admin_id=aid)}
+        assert "nota secreta" in (await cliente.get(f"/admin/conversas/{a}/mensagens", headers=h)).text
+    finally:
+        async with get_admin_session() as s:
+            await s.execute(text("DELETE FROM conversa_notas WHERE corretor_id = :c AND texto = 'nota secreta da equipe'"), {"c": a})

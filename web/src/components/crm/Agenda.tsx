@@ -4,6 +4,7 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { CalendarDays, Check, ChevronDown, ChevronLeft, ChevronRight, CircleAlert, Columns3, List, ListChecks, ListFilter, PanelLeft, Plus, Rows3, Search, X } from "lucide-react";
 import { fetchApi } from "@/lib/api";
 import { CorretorOpcao, corretoresAtivos } from "@/lib/crm";
+import { useEhCorretor } from "@/components/portal/papel";
 import { Aviso, Seletor, useApi, useRecado } from "@/components/configuracoes/ui";
 import { ICONES_ATIVIDADE } from "@/components/configuracoes/secoes/Personalizacao";
 import MiniCalendario from "./agenda/MiniCalendario";
@@ -35,6 +36,7 @@ const VISOES: { id: Visao; rotulo: string; Icone: React.ComponentType<{ classNam
 const btnIcone = "w-9 h-9 rounded-full inline-flex items-center justify-center hover:bg-[var(--hover-solid)] transition-colors";
 
 export default function Agenda({ onAuthError }: { onAuthError: (e: unknown) => boolean }) {
+  const ehCorretor = useEhCorretor();  // a agenda do corretor é só dele: sem filtro por corretor
   const api = useApi(onAuthError);
   const [visao, setVisao] = useState<Visao>("semana");
   const [ancora, setAncora] = useState(() => dia0(new Date()));
@@ -181,6 +183,7 @@ export default function Agenda({ onAuthError }: { onAuthError: (e: unknown) => b
             <label className="relative"><span className="sr-only">Buscar atividades</span><input autoFocus value={busca} onChange={(e) => setBusca(e.target.value)} onBlur={() => !busca && setBuscando(false)} placeholder="Título, cliente ou corretor" className="h-9 w-48 sm:w-60 rounded-full pl-4 pr-9 text-sm outline-none" style={{ background: "var(--card)", border: "1px solid var(--line)", color: "var(--text)" }} />{busca && <button type="button" aria-label="Limpar busca" onClick={() => { setBusca(""); setBuscando(false); }} className="absolute right-2 top-1/2 -translate-y-1/2 p-1" style={{ color: "var(--text-3)" }}><X className="w-3.5 h-3.5" /></button>}</label>
           ) : <button type="button" onClick={() => setBuscando(true)} aria-label="Buscar atividades" className={btnIcone} style={{ background: "var(--card)", color: "var(--text-2)" }}><Search className="w-[18px] h-[18px]" /></button>}
           <button type="button" onClick={() => { setSoAtrasadas((v) => !v); setVisao("lista"); setIntervalo(null); }} aria-pressed={soAtrasadas} title="Atividades atrasadas" className="h-9 px-3 rounded-full inline-flex items-center gap-1.5 text-sm tabular-nums" style={{ background: soAtrasadas ? "var(--accent-soft)" : "var(--card)", color: atrasadas ? "var(--danger)" : "var(--text-2)" }}><CircleAlert className="w-4 h-4" aria-hidden />{atrasadas}<span className="sr-only"> atrasadas</span></button>
+          {!ehCorretor && (
           <div className="relative">
             <button type="button" onClick={() => setFiltroAberto((v) => !v)} aria-label="Filtrar por corretor" aria-expanded={filtroAberto} className={btnIcone} style={{ background: corretor ? "var(--accent-soft)" : "var(--card)", color: corretor ? "var(--accent-text)" : "var(--text-2)" }}><ListFilter className="w-[18px] h-[18px]" /></button>
             {filtroAberto && (
@@ -189,6 +192,7 @@ export default function Agenda({ onAuthError }: { onAuthError: (e: unknown) => b
               </div>
             )}
           </div>
+          )}
           <div role="group" aria-label="Visualização" className="inline-flex rounded-full p-1" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
             {VISOES.map(({ id, rotulo, Icone }) => (
               <button key={id} type="button" onClick={() => trocarVisao(id)} aria-pressed={visao === id} aria-label={rotulo} title={rotulo} className="w-9 h-8 rounded-full inline-flex items-center justify-center transition-colors" style={{ background: visao === id ? "var(--hover-solid)" : "transparent", color: visao === id ? "var(--text)" : "var(--text-3)" }}><Icone className="w-4 h-4" /></button>

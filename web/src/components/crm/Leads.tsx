@@ -1,6 +1,7 @@
 "use client";
 
 import AvatarDoCorretor from "@/components/corretor/AvatarDoCorretor";
+import { useEhCorretor } from "@/components/portal/papel";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight, Search, Shuffle, UserCheck, X } from "lucide-react";
 import { Perfil } from "@/lib/crm";
@@ -53,6 +54,7 @@ export default function Leads({ onAuthError, onIr, detalheInicial, onDetalheCons
   const [dados, setDados] = useState<Pagina | null>(null);
   const [carregando, setCarregando] = useState(true);
   const [erro, setErro] = useState<string | null>(null);
+  const ehCorretor = useEhCorretor();  // a carteira do corretor é só dele: sem filtro de responsável, atribuição em massa nem importação
   const [corretores, setCorretores] = useState<{ id: string; nome: string }[]>([]);
 
   const [busca, setBusca] = useState("");
@@ -80,11 +82,12 @@ export default function Leads({ onAuthError, onIr, detalheInicial, onDetalheCons
   }, [busca]);
 
   useEffect(() => {
+    if (ehCorretor) return;
     (async () => {
       const r = await api<{ corretores: { id: string; nome: string | null; status: string }[] }>("/admin/configuracoes/equipe");
       if (r.dados) setCorretores(r.dados.corretores.filter((c) => c.status === "active").map((c) => ({ id: c.id, nome: c.nome || "Corretor" })));
     })();
-  }, [api]);
+  }, [api, ehCorretor]);
 
   const filtroAtual = useMemo(() => ({ termo: termo || null, responsavel: responsavel || null, origem: origem || null, temperatura: temperatura || null }), [termo, responsavel, origem, temperatura]);
 
@@ -150,10 +153,10 @@ export default function Leads({ onAuthError, onIr, detalheInicial, onDetalheCons
         <div>
           <h1 className="text-2xl font-semibold tracking-tight" style={{ color: "var(--text)" }}>Clientes</h1>
           <p className="mt-1 text-sm" style={{ color: "var(--text-3)" }}>
-            {resumo ? <>{n(resumo.total)} {resumo.total === 1 ? "cliente" : "clientes"} · {n(resumo.imoview)} do Imoview · {n(resumo.sem_responsavel)} sem responsável</> : "Carregando…"}
+            {resumo ? <>{n(resumo.total)} {resumo.total === 1 ? "cliente" : "clientes"} · {n(resumo.imoview)} do Imoview{ehCorretor ? "" : <> · {n(resumo.sem_responsavel)} sem responsável</>}</> : "Carregando…"}
           </p>
         </div>
-        {onIr && <Botao onClick={() => onIr("configuracoes")}>Sincronização com o Imoview</Botao>}
+        {onIr && !ehCorretor && <Botao onClick={() => onIr("configuracoes")}>Sincronização com o Imoview</Botao>}
       </header>
 
       <div className="flex flex-wrap gap-2 mb-4">
@@ -162,11 +165,11 @@ export default function Leads({ onAuthError, onIr, detalheInicial, onDetalheCons
           <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4" style={{ color: "var(--text-4)" }} aria-hidden />
           <Entrada type="search" value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Nome, telefone ou e-mail" className="!pl-10 !rounded-full" />
         </label>
-        <Seletor aria-label="Responsável" value={responsavel} onChange={(e) => mudarFiltro(() => setResponsavel(e.target.value))} className="!w-auto">
+        {!ehCorretor && (<Seletor aria-label="Responsável" value={responsavel} onChange={(e) => mudarFiltro(() => setResponsavel(e.target.value))} className="!w-auto">
           <option value="">Todos os responsáveis</option>
           <option value="sem">Sem responsável{resumo ? ` (${n(resumo.sem_responsavel)})` : ""}</option>
           {corretores.map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}
-        </Seletor>
+        </Seletor>)}
         <Seletor aria-label="Origem" value={origem} onChange={(e) => mudarFiltro(() => setOrigem(e.target.value))} className="!w-auto">
           <option value="">Todas as origens</option><option value="imoview">Imoview</option><option value="whatsapp">WhatsApp</option><option value="manual">Manual</option>
         </Seletor>
@@ -183,7 +186,7 @@ export default function Leads({ onAuthError, onIr, detalheInicial, onDetalheCons
 
       <div className="grid xl:grid-cols-[minmax(0,1fr)_420px] gap-5 items-start">
         <section className="rounded-2xl overflow-hidden" style={{ background: "var(--card)", border: "1px solid var(--line)" }} aria-busy={carregando} aria-label="Lista de clientes">
-          {marcados.size > 0 || todosDoFiltro ? (
+          {!ehCorretor && (marcados.size > 0 || todosDoFiltro) ? (
             <div className="assist-fade px-4 py-3 flex flex-wrap items-center gap-3" style={{ background: "var(--accent-soft)", borderBottom: "1px solid var(--line)" }}>
               <span className="text-sm font-medium" style={{ color: "var(--text)" }}>{n(quantidadeSelecionada)} {quantidadeSelecionada === 1 ? "selecionado" : "selecionados"}</span>
               {!todosDoFiltro && todosDaPagina && dados && dados.total > itens.length && (
@@ -208,10 +211,10 @@ export default function Leads({ onAuthError, onIr, detalheInicial, onDetalheCons
               <table className="w-full text-sm">
                 <thead>
                   <tr className="text-left text-xs" style={{ color: "var(--text-4)", borderBottom: "1px solid var(--line)" }}>
-                    <th className="pl-4 pr-3 py-3 w-8"><input type="checkbox" checked={todosDaPagina} onChange={alternarPagina} aria-label="Selecionar a página" className="w-4 h-4 accent-[var(--accent)]" /></th>
+                    {ehCorretor ? <th className="pl-4 py-3 w-0" /> : <th className="pl-4 pr-3 py-3 w-8"><input type="checkbox" checked={todosDaPagina} onChange={alternarPagina} aria-label="Selecionar a página" className="w-4 h-4 accent-[var(--accent)]" /></th>}
                     <th className="py-3 pr-3 font-medium">Cliente</th>
                     <th className="py-3 pr-3 font-medium hidden md:table-cell">Origem</th>
-                    <th className="py-3 pr-3 font-medium hidden sm:table-cell">Responsável</th>
+                    {!ehCorretor && <th className="py-3 pr-3 font-medium hidden sm:table-cell">Responsável</th>}
                     <th className="py-3 pr-4 font-medium hidden lg:table-cell">Entrada</th>
                   </tr>
                 </thead>
@@ -220,14 +223,14 @@ export default function Leads({ onAuthError, onIr, detalheInicial, onDetalheCons
                     const sel = marcados.has(c.id) || todosDoFiltro;
                     return (
                       <tr key={c.id} onClick={() => abrir(c)} className="cursor-pointer hover:bg-[var(--hover-solid)] transition-colors" style={{ borderTop: "1px solid var(--line)", background: aberto?.id === c.id ? "var(--hover-solid)" : undefined }}>
-                        <td className="pl-4 pr-3 py-3" onClick={(e) => e.stopPropagation()}><input type="checkbox" checked={sel} disabled={todosDoFiltro} onChange={() => alternar(c.id)} aria-label={`Selecionar ${c.nome}`} className="w-4 h-4 accent-[var(--accent)]" /></td>
+                        {ehCorretor ? <td className="pl-4 py-3 w-0" /> : <td className="pl-4 pr-3 py-3" onClick={(e) => e.stopPropagation()}><input type="checkbox" checked={sel} disabled={todosDoFiltro} onChange={() => alternar(c.id)} aria-label={`Selecionar ${c.nome}`} className="w-4 h-4 accent-[var(--accent)]" /></td>}
                         <td className="py-3 pr-3 min-w-0">
                           <div className="flex items-center gap-2"><span className="font-medium truncate max-w-[12rem] sm:max-w-[16rem]" style={{ color: "var(--text)" }}>{c.nome}</span><span aria-label={`Temperatura ${c.temperatura}`} title={c.temperatura} className="w-2 h-2 rounded-full shrink-0" style={{ background: COR_TEMP[c.temperatura] }} /></div>
                           <p className="text-xs truncate max-w-[14rem] sm:max-w-[18rem]" style={{ color: "var(--text-3)" }}>{[fone(c.telefone), c.email].filter(Boolean).join(" · ") || "Sem contato"}</p>
-                          <p className="sm:hidden mt-1 text-xs" style={{ color: c.corretor_nome ? "var(--text-2)" : "var(--warn)" }}>{c.corretor_nome || "Sem responsável"}</p>
+                          {!ehCorretor && <p className="sm:hidden mt-1 text-xs" style={{ color: c.corretor_nome ? "var(--text-2)" : "var(--warn)" }}>{c.corretor_nome || "Sem responsável"}</p>}
                         </td>
                         <td className="py-3 pr-3 hidden md:table-cell whitespace-nowrap"><Selo tom={c.origem === "imoview" ? "info" : "neutro"}>{rotuloOrigem(c.origem)}</Selo></td>
-                        <td className="py-3 pr-3 hidden sm:table-cell whitespace-nowrap">{c.corretor_nome ? <span className="inline-flex items-center gap-2" style={{ color: "var(--text-2)" }}><AvatarDoCorretor id={c.corretor_id} nome={c.corretor_nome} tamanho={24} />{c.corretor_nome}</span> : <Selo tom="aviso">Sem responsável</Selo>}</td>
+                        {!ehCorretor && <td className="py-3 pr-3 hidden sm:table-cell whitespace-nowrap">{c.corretor_nome ? <span className="inline-flex items-center gap-2" style={{ color: "var(--text-2)" }}><AvatarDoCorretor id={c.corretor_id} nome={c.corretor_nome} tamanho={24} />{c.corretor_nome}</span> : <Selo tom="aviso">Sem responsável</Selo>}</td>}
                         <td className="py-3 pr-4 hidden lg:table-cell text-xs tabular-nums" style={{ color: "var(--text-3)" }}>{data(c.created_at)}</td>
                       </tr>
                     );

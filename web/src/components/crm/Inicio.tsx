@@ -1,5 +1,6 @@
 "use client";
 
+import { useEhCorretor } from "@/components/portal/papel";
 import AvatarDoCorretor from "@/components/corretor/AvatarDoCorretor";
 import React, { useEffect, useState } from "react";
 import { CalendarClock, ChevronRight, Hourglass, MessageCircle, TriangleAlert } from "lucide-react";
@@ -38,6 +39,7 @@ export default function Inicio({
   onIr: (tab: string) => void;
   onAuthError: (e: unknown) => boolean;
 }) {
+  const ehCorretor = useEhCorretor();
   const [pendencias, setPendencias] = useState<Pendencia[] | null>(null);
   const [resumo, setResumo] = useState({ semResposta: 0, previsao: 0, hoje: 0 });
 
@@ -88,7 +90,7 @@ export default function Inicio({
           .forEach((c) =>
             itens.push({
               id: c.corretor_id, corretorId: c.corretor_id, corretorNome: c.corretor_nome, icone: MessageCircle, tom: "normal", destino: "conversas",
-              titulo: `Conversa com ${c.corretor_nome || "corretor"}`,
+              titulo: ehCorretor ? "Sua conversa com o Acessor" : `Conversa com ${c.corretor_nome || "corretor"}`,
               detalhe: `${c.nao_respondidas} sem resposta do agente`,
             })
           );

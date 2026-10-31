@@ -70,3 +70,15 @@ export function tokenSub(): string {
     return "";
   }
 }
+
+// Id do corretor gravado no token (`cid`); vazio para os outros papéis.
+export function tokenCorretorId(): string {
+  const token = getToken();
+  if (!token) return "";
+  try {
+    const payload = JSON.parse(atob(token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/")));
+    return typeof payload.cid === "string" ? payload.cid : "";
+  } catch {
+    return "";
+  }
+}

@@ -18,6 +18,7 @@ export default function CompositorConversa({
   semWhatsapp,
   erro,
   onAcao,
+  somenteAcoes = false,
 }: {
   modo: ModoCompositor;
   onModo: (m: ModoCompositor) => void;
@@ -30,6 +31,8 @@ export default function CompositorConversa({
   erro: string | null;
   /** Abre uma ação rápida (enviar imóveis ou a ficha de um cliente). Ausente = sem o menu. */
   onAcao?: (a: AcaoRapidaCompositor) => void;
+  /** Portal do corretor: sem texto livre nem notas; só as ações rápidas ("enviar para mim"). */
+  somenteAcoes?: boolean;
 }) {
   const area = useRef<HTMLTextAreaElement | null>(null);
   const caixa = useRef<HTMLDivElement | null>(null);
@@ -76,6 +79,25 @@ export default function CompositorConversa({
     background: ativo ? "var(--hover-solid)" : "transparent",
     color: ativo ? "var(--text)" : "var(--text-3)",
   });
+
+  if (somenteAcoes) {
+    const ACOES: [AcaoRapidaCompositor, string, React.ComponentType<{ className?: string }>][] = [
+      ["imoveis", "Receber imóveis", Building2], ["book", "Receber book em PDF", BookOpen], ["lead", "Receber ficha de cliente", UserRound],
+    ];
+    return (
+      <div className="px-4 pb-4 pt-3">
+        {erro && <p role="alert" className="mb-2 text-xs" style={{ color: "var(--danger)" }}>{erro}</p>}
+        <p className="text-xs mb-2" style={{ color: "var(--text-3)" }}>Peça ao Acessor no seu WhatsApp, ou receba agora no seu número:</p>
+        <div className="flex flex-wrap gap-2">
+          {ACOES.map(([id, rotulo, Icone]) => (
+            <button key={id} type="button" onClick={() => onAcao?.(id)} className="inline-flex items-center gap-2 h-10 px-4 rounded-full text-sm hover:bg-[var(--hover-solid)]" style={{ border: "1px solid var(--line-2)", color: "var(--text-2)" }}>
+              <Icone className="w-4 h-4" aria-hidden /> {rotulo}
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div ref={caixa} className="relative px-4 pb-4 pt-2">

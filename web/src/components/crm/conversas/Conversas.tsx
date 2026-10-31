@@ -5,6 +5,7 @@ import { AlertTriangle, ArrowLeft, Info, Loader2, MessageSquare, MoreHorizontal,
 import { fetchApi } from "@/lib/api";
 import ChatMensagens, { MensagemChat } from "../ChatMensagens";
 import CompositorConversa, { ModoCompositor } from "./CompositorConversa";
+import { useEhCorretor } from "@/components/portal/papel";
 import AcoesRapidas, { TipoAcao } from "./AcoesRapidas";
 import ListaConversas, { Avatar } from "./ListaConversas";
 import PainelDetalhes, { AbaDetalhes, ResumoEstado } from "./PainelDetalhes";
@@ -42,6 +43,7 @@ export default function Conversas({
   const [versao, setVersao] = useState(0);
   const [resumo, setResumo] = useState<ResumoEstado>({ estado: "ocioso", texto: "" });
 
+  const ehCorretor = useEhCorretor();  // o corretor só conversa com o agente: sem intervenção da equipe nem notas internas
   const [modo, setModo] = useState<ModoCompositor>("mensagem");
   const [acao, setAcao] = useState<TipoAcao | null>(null);
   const [texto, setTexto] = useState("");
@@ -63,13 +65,14 @@ export default function Conversas({
   }, []);
 
   const carregarWhatsapp = useCallback(async () => {
+    if (ehCorretor) return;  // o estado do WhatsApp do agente é da gestão
     try {
       const res = await fetchApi("/admin/whatsapp");
       if (res.ok) setOnline((await res.json()).status === "connected");
     } catch (e) {
       onAuthError(e);
     }
-  }, [onAuthError]);
+  }, [onAuthError, ehCorretor]);
 
   useEffect(() => {
     carregarWhatsapp();
@@ -85,7 +88,7 @@ export default function Conversas({
         if (!res.ok) throw new ErroApi("Não foi possível carregar as mensagens desta conversa.");
         const dados = await res.json();
         if (selRef.current !== id) return;
-        const novas: MensagemChat[] = dados.mensagens || [];
+        const novas: MensagemChat[] = (dados.mensagens || []).filter((m: MensagemChat) => !ehCorretor || m.origem !== "nota");
         setMensagens((antes) => {
           const mesma = antes.length === novas.length && antes[antes.length - 1]?.id === novas[novas.length - 1]?.id;
           return mesma ? antes : novas;
@@ -99,7 +102,7 @@ export default function Conversas({
         if (!silencioso) setCarregandoMsgs(false);
       }
     },
-    [onAuthError]
+    [onAuthError, ehCorretor]
   );
 
   const abrir = (c: ConversaResumo) => {
@@ -283,7 +286,7 @@ export default function Conversas({
               </div>
 
               <div className="shrink-0" style={{ borderTop: "1px solid var(--line)", background: "var(--bg)" }}>
-                <CompositorConversa modo={modo} onModo={(m) => { setModo(m); setErroEnvio(null); }} texto={texto} onTexto={setTexto} onEnviar={enviar} enviando={enviando} semWhatsapp={online === false} erro={erroEnvio} onAcao={setAcao} />
+                <CompositorConversa modo={modo} onModo={(m) => { setModo(m); setErroEnvio(null); }} texto={texto} onTexto={setTexto} onEnviar={enviar} enviando={enviando} semWhatsapp={online === false} erro={erroEnvio} onAcao={setAcao} somenteAcoes={ehCorretor} />
               </div>
             </>
           )}

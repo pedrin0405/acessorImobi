@@ -24,7 +24,7 @@ interface Props {
   rodape?: NavItem[];
   ativo: string;
   onSelecionar: (id: string) => void;
-  usuario: { nome: string; papel: string };
+  usuario: { nome: string; papel: string; /** Foto/avatar no lugar das iniciais. */ avatar?: React.ReactNode };
   onSair: () => void;
   /** Telas de trabalho (ex.: Conversas) usam toda a área, sem a moldura de leitura. */
   larguraTotal?: boolean;
@@ -162,9 +162,11 @@ export default function AppShell({ marca, subtitulo, grupos, rodape = [], ativo,
       <div className={`py-3 space-y-1 ${compacto ? "px-2" : "px-3"}`} style={{ borderTop: "1px solid var(--line)" }}>
         {rodape.map((it) => <Item key={it.id} item={it} compacto={compacto} />)}
         <div className={`flex items-center gap-3 pt-2 ${compacto ? "justify-center" : "px-1"}`}>
-          <span className="w-9 h-9 rounded-full flex items-center justify-center text-xs font-semibold shrink-0" style={{ background: "var(--card-2)", color: "var(--text-2)" }}>
-            {(usuario.nome.match(/[A-Za-zÀ-ÿ]+/g) ?? [usuario.papel]).map((p) => p[0]).slice(0, 2).join("").toUpperCase()}
-          </span>
+          {usuario.avatar ? <span className="shrink-0">{usuario.avatar}</span> : (
+            <span className="w-9 h-9 rounded-full flex items-center justify-center text-xs font-semibold shrink-0" style={{ background: "var(--card-2)", color: "var(--text-2)" }}>
+              {(usuario.nome.match(/[A-Za-zÀ-ÿ]+/g) ?? [usuario.papel]).map((p) => p[0]).slice(0, 2).join("").toUpperCase()}
+            </span>
+          )}
           {!compacto && (
             <div className="min-w-0 flex-1">
               <p className="text-[13px] font-medium truncate" style={{ color: "var(--text)" }}>{usuario.nome}</p>

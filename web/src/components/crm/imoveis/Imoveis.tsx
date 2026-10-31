@@ -7,6 +7,7 @@ import BarraFiltros, { ChipsAtivos } from "./Filtros";
 import DetalheImovel from "./Detalhe";
 import CartaoImovel from "./CartaoImovel";
 import { useSincronizacao } from "./useSincronizacao";
+import { useEhCorretor } from "@/components/portal/papel";
 import {
   FILTROS_VAZIOS, Filtros, ImovelResumo, ListaImoveis, Facetas, StatusSync, numero, paraParametros, precoDoImovel, relativo, rotuloFinalidade,
 } from "./tipos";
@@ -139,6 +140,7 @@ function Andamento({ s }: { s: StatusSync }) {
 }
 
 export default function Imoveis({ onAuthError, onIr }: { onAuthError: (e: unknown) => boolean; onIr: (tab: string) => void }) {
+  const ehCorretor = useEhCorretor();  // catálogo somente leitura: a sincronização com o Imoview é da gestão
   const [filtros, setFiltros] = useState<Filtros>({ ...FILTROS_VAZIOS });
   const [ordem, setOrdem] = useState("recentes");
   const [visao, setVisao] = useState<"cards" | "tabela">("cards");
@@ -205,7 +207,7 @@ export default function Imoveis({ onAuthError, onIr }: { onAuthError: (e: unknow
     return () => clearTimeout(id);
   }, [buscar]);
 
-  const { status, sincronizar, sincronizando } = useSincronizacao(onAuthError, buscar);
+  const { status, sincronizar, sincronizando } = useSincronizacao(onAuthError, buscar, !ehCorretor);
 
   const mudarFiltros = (f: Filtros) => {
     setFiltros(f);
@@ -245,20 +247,20 @@ export default function Imoveis({ onAuthError, onIr }: { onAuthError: (e: unknow
               <>
                 <span className="tabular-nums">{new Intl.NumberFormat("pt-BR").format(sync.imoveis_ativos)}</span> imóveis disponíveis · atualizado {relativo(sync.ultimo_sucesso_em)}
               </>
-            ) : configurada === false ? "Conecte o Imoview para trazer sua carteira." : "Carregando…"}
+            ) : configurada === false ? (ehCorretor ? "A carteira de imóveis ainda não foi carregada." : "Conecte o Imoview para trazer sua carteira.") : "Carregando…"}
           </p>
         </div>
-        {configurada && <div className="flex items-center gap-4">{sincronizando && sync ? <Andamento s={sync} /> : null}{botaoSync}</div>}
+        {configurada && !ehCorretor && <div className="flex items-center gap-4">{sincronizando && sync ? <Andamento s={sync} /> : null}{botaoSync}</div>}
       </header>
 
       {erroSync && <p role="alert" className="text-sm" style={{ color: "var(--danger)" }}>{erroSync}</p>}
-      {sync?.estado === "erro" && sync.erro && (
+      {!ehCorretor && sync?.estado === "erro" && sync.erro && (
         <div role="alert" className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 rounded-xl text-sm" style={{ background: "color-mix(in srgb, var(--danger) 10%, transparent)", border: "1px solid color-mix(in srgb, var(--danger) 35%, transparent)", color: "var(--text-2)" }}>
           <span className="flex items-start gap-2"><AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" style={{ color: "var(--danger)" }} aria-hidden />A última sincronização falhou: {sync.erro} Os imóveis abaixo são da última leitura bem-sucedida.</span>
           <button type="button" onClick={() => onIr("configuracoes")} className="font-medium hover:underline" style={{ color: "var(--text)" }}>Revisar integração</button>
         </div>
       )}
-      {sync?.estado === "ok" && sync.aviso && (
+      {!ehCorretor && sync?.estado === "ok" && sync.aviso && (
         <p role="status" className="px-4 py-3 rounded-xl text-sm" style={{ background: "color-mix(in srgb, var(--warn) 10%, transparent)", color: "var(--text-2)" }}>{sync.aviso}</p>
       )}
 
@@ -304,7 +306,7 @@ export default function Imoveis({ onAuthError, onIr }: { onAuthError: (e: unknow
                   {semFiltros ? (sincronizando ? "Buscando seus imóveis no Imoview…" : "Nenhum imóvel no cache ainda") : "Nenhum imóvel com esses filtros"}
                 </h2>
                 <p className="mt-1 mx-auto max-w-sm text-sm" style={{ color: "var(--text-3)" }}>
-                  {semFiltros ? (sincronizando ? "A primeira leitura leva cerca de um minuto. Esta tela atualiza sozinha." : "Clique em Sincronizar agora para trazer a carteira do Imoview.") : "Tente remover algum filtro ou buscar por outro termo."}
+                  {semFiltros ? (sincronizando ? "A primeira leitura leva cerca de um minuto. Esta tela atualiza sozinha." : (ehCorretor ? "A carteira de imóveis da imobiliária ainda não foi carregada. Fale com a gestão." : "Clique em Sincronizar agora para trazer a carteira do Imoview.")) : "Tente remover algum filtro ou buscar por outro termo."}
                 </p>
                 {!semFiltros && <button type="button" onClick={() => mudarFiltros({ ...FILTROS_VAZIOS })} className="mt-5 px-5 py-2.5 rounded-full text-sm font-medium hover:brightness-110" style={{ background: "var(--chip)", color: "var(--chip-text)" }}>Limpar filtros</button>}
               </section>

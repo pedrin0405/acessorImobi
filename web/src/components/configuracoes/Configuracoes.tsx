@@ -11,6 +11,9 @@ import { PerfilSecao, SegurancaSecao } from "./secoes/Conta";
 import { DadosSecao, EquipeSecao, RoletaSecao } from "./secoes/Imobiliaria";
 import { BooksSecao } from "./secoes/Books";
 import { CamposSecao, LocalidadesSecao, TiposSecao } from "./secoes/Personalizacao";
+import { MeuPerfilSecao } from "./secoes/MinhaConta";
+import { DadosLeitura, LembretesLeitura, LocalidadesLeitura, TiposLeitura } from "./secoes/Leitura";
+import { useEhCorretor } from "@/components/portal/papel";
 
 type Icone = React.ComponentType<{ className?: string }>;
 interface Item { id: string; grupo: string; rotulo: string; icone: Icone; palavras: string; emBreve?: boolean }
@@ -36,6 +39,16 @@ const ITENS: Item[] = [
   { id: "site", grupo: "Canais & Publicação", rotulo: "Meu site", icone: Globe, palavras: "página domínio publicar", emBreve: true },
 ];
 
+// O corretor ajusta só o que é dele (perfil, WhatsApp e assistente) e consulta, sem editar, o que a gestão define.
+const ITENS_CORRETOR: Item[] = [
+  { id: "meuperfil", grupo: "Minha conta", rotulo: "Meu perfil", icone: User, palavras: "nome e-mail foto telefone whatsapp" },
+  { id: "whatsapp", grupo: "Minha conta", rotulo: "Meu WhatsApp e assistente", icone: QrCode, palavras: "número qr código conectar assistente avisos carteira atendimentos" },
+  { id: "dados", grupo: "Da imobiliária (somente leitura)", rotulo: "Dados da imobiliária", icone: Building2, palavras: "contato telefone site creci horário atendimento" },
+  { id: "tipos", grupo: "Da imobiliária (somente leitura)", rotulo: "Tipos de atividade", icone: Shapes, palavras: "agenda visita reunião ligação" },
+  { id: "localidades", grupo: "Da imobiliária (somente leitura)", rotulo: "Localidades", icone: MapPin, palavras: "cidades bairros regiões" },
+  { id: "lembretes", grupo: "Da imobiliária (somente leitura)", rotulo: "Lembretes da agenda", icone: AlarmClock, palavras: "avisos antecedência compromissos mensagem" },
+];
+
 const semAcento = (t: string) => t.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
 
 export default function Configuracoes({
@@ -54,18 +67,21 @@ export default function Configuracoes({
   renderWhatsApp: () => React.ReactNode;
 }) {
   const api = useApi(onAuthError);
-  const [secao, setSecao] = useState(ITENS.some((i) => i.id === secaoInicial) ? secaoInicial : "perfil");
+  const ehCorretor = useEhCorretor();
+  const itens = ehCorretor ? ITENS_CORRETOR : ITENS;
+  const [secao, setSecao] = useState(itens.some((i) => i.id === secaoInicial) ? secaoInicial : itens[0].id);
   const [busca, setBusca] = useState("");
   const [navMovel, setNavMovel] = useState(false);
   const [resumo, setResumo] = useState<Resumo | null>(null);
   useEffect(() => { onSecao?.(secao); }, [secao, onSecao]);
 
   useEffect(() => {
+    if (ehCorretor) return;  // o resumo do menu (equipe, roleta…) é da gestão
     (async () => {
       const r = await api<Resumo>("/admin/configuracoes/resumo");
       if (r.ok && r.dados) setResumo(r.dados);
     })();
-  }, [api, secao]);
+  }, [api, secao, ehCorretor]);
 
   const meta = (id: string): string | null => {
     if (!resumo) return null;
@@ -78,8 +94,8 @@ export default function Configuracoes({
 
   const visiveis = useMemo(() => {
     const q = semAcento(busca.trim());
-    return q ? ITENS.filter((i) => semAcento(`${i.rotulo} ${i.palavras} ${i.grupo}`).includes(q)) : ITENS;
-  }, [busca]);
+    return q ? itens.filter((i) => semAcento(`${i.rotulo} ${i.palavras} ${i.grupo}`).includes(q)) : itens;
+  }, [busca, itens]);
   const grupos = useMemo(() => {
     const out: { nome: string; itens: Item[] }[] = [];
     for (const i of visiveis) {
@@ -89,9 +105,19 @@ export default function Configuracoes({
     return out;
   }, [visiveis]);
 
-  const atual = ITENS.find((i) => i.id === secao) || ITENS[0];
+  const atual = itens.find((i) => i.id === secao) || itens[0];
 
   const conteudo = () => {
+    if (ehCorretor) {
+      switch (atual.id) {
+        case "meuperfil": return <MeuPerfilSecao onAuthError={onAuthError} />;
+        case "whatsapp": return renderWhatsApp();
+        case "dados": return <DadosLeitura onAuthError={onAuthError} />;
+        case "tipos": return <TiposLeitura onAuthError={onAuthError} />;
+        case "localidades": return <LocalidadesLeitura onAuthError={onAuthError} />;
+        case "lembretes": return <LembretesLeitura onAuthError={onAuthError} />;
+      }
+    }
     switch (atual.id) {
       case "perfil": return <PerfilSecao onAuthError={onAuthError} />;
       case "seguranca": return <SegurancaSecao onAuthError={onAuthError} slug={resumo?.slug || ""} onSair={onSair} />;
@@ -127,7 +153,7 @@ export default function Configuracoes({
     <div className="max-w-[1180px] mx-auto">
       <header className="mb-6">
         <h1 className="text-3xl font-semibold tracking-tight" style={{ color: "var(--text)" }}>Configurações</h1>
-        <p className="mt-1.5 text-sm" style={{ color: "var(--text-3)" }}>Sua conta, a imobiliária, o Acessor e os canais. Cada ajuste no seu lugar.</p>
+        <p className="mt-1.5 text-sm" style={{ color: "var(--text-3)" }}>{ehCorretor ? "Sua conta, seu WhatsApp e o que a imobiliária definiu para o seu dia a dia." : "Sua conta, a imobiliária, o Acessor e os canais. Cada ajuste no seu lugar."}</p>
       </header>
 
       <div className="grid lg:grid-cols-[290px_minmax(0,1fr)] gap-x-12 gap-y-6">

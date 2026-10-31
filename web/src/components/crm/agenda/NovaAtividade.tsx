@@ -3,6 +3,8 @@
 import React, { useEffect, useState } from "react";
 import { fetchApi } from "@/lib/api";
 import { CorretorOpcao, corretoresAtivos } from "@/lib/crm";
+import { tokenCorretorId } from "@/lib/api";
+import { useEhCorretor } from "@/components/portal/papel";
 import { Aviso, Botao, Entrada, Seletor, useApi } from "@/components/configuracoes/ui";
 import Janela from "./Janela";
 import { TipoAgenda } from "./util";
@@ -13,8 +15,9 @@ export default function NovaAtividade({ inicial, tipos, onAuthError, onFechar, o
   inicial: Preenchimento; tipos: TipoAgenda[]; onAuthError: (e: unknown) => boolean; onFechar: () => void; onCriada: () => void;
 }) {
   const api = useApi(onAuthError);
+  const ehCorretor = useEhCorretor();
   const [corretores, setCorretores] = useState<CorretorOpcao[]>([]);
-  const [f, setF] = useState({ corretor_id: "", tipo: inicial.tipo || "visita", titulo: "", data: inicial.data || "", hora: inicial.hora || "", cliente: "", local: "" });
+  const [f, setF] = useState({ corretor_id: ehCorretor ? tokenCorretorId() : "", tipo: inicial.tipo || "visita", titulo: "", data: inicial.data || "", hora: inicial.hora || "", cliente: "", local: "" });
   const [erro, setErro] = useState<string | null>(null);
   const [salvando, setSalvando] = useState(false);
 
@@ -43,8 +46,8 @@ export default function NovaAtividade({ inicial, tipos, onAuthError, onFechar, o
       <form onSubmit={enviar} className="space-y-3">
         {erro && <Aviso tom="erro">{erro}</Aviso>}
         <div className="grid grid-cols-2 gap-3">
-          <label className="col-span-2 sm:col-span-1 text-xs space-y-1" style={{ color: "var(--text-3)" }}>Corretor *
-            <Seletor required value={f.corretor_id} onChange={(e) => setF({ ...f, corretor_id: e.target.value })}><option value="">Selecione</option>{corretores.map((c) => <option key={c.id} value={c.id}>{c.nome || c.telefone_mascarado}</option>)}</Seletor></label>
+          {!ehCorretor && (<label className="col-span-2 sm:col-span-1 text-xs space-y-1" style={{ color: "var(--text-3)" }}>Corretor *
+            <Seletor required value={f.corretor_id} onChange={(e) => setF({ ...f, corretor_id: e.target.value })}><option value="">Selecione</option>{corretores.map((c) => <option key={c.id} value={c.id}>{c.nome || c.telefone_mascarado}</option>)}</Seletor></label>)}
           <label className="col-span-2 sm:col-span-1 text-xs space-y-1" style={{ color: "var(--text-3)" }}>Tipo
             <Seletor value={f.tipo} onChange={(e) => setF({ ...f, tipo: e.target.value })}>{tipos.map((t) => <option key={t.chave} value={t.chave}>{t.nome}</option>)}</Seletor></label>
         </div>

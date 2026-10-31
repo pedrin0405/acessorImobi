@@ -7,7 +7,8 @@ import {
   MapPin, MessageCircle, Plus, Search, Settings2, ShieldCheck, Trophy, UserPlus, X, XCircle,
 } from "lucide-react";
 import { brl, COR_ETAPA, CorretorOpcao, corretoresAtivos, Etapa, Funil, FunilEtapa, Negocio } from "@/lib/crm";
-import { fetchApi } from "@/lib/api";
+import { fetchApi, tokenCorretorId } from "@/lib/api";
+import { useEhCorretor } from "@/components/portal/papel";
 import PopupNegocio from "@/components/crm/lead/PopupNegocio";
 import { ResumoImoview, TermometroSelo, tempoAtras, ValorNegocio } from "@/components/crm/FluxoBits";
 import { Aviso, Botao, Entrada, Seletor, Selo, useApi } from "@/components/configuracoes/ui";
@@ -41,6 +42,7 @@ export default function Negociacoes({ onAuthError, onAbrirCliente }: { onAuthErr
   const arrastou = useRef(false);
   const [funil, setFunil] = useState<Funil | null>(null);
   const [etapas, setEtapas] = useState<Etapa[]>([]);
+  const ehCorretor = useEhCorretor();  // o corretor só vê o próprio fluxo e não mexe nas etapas da gestão
   const [corretores, setCorretores] = useState<CorretorOpcao[]>([]);
   const [busca, setBusca] = useState("");
   const [termo, setTermo] = useState("");
@@ -158,7 +160,7 @@ export default function Negociacoes({ onAuthError, onAbrirCliente }: { onAuthErr
 
   const abrirNovo = (etapa?: string) => {
     setNovoErro(null);
-    setNovo({ corretor_id: corretores.length === 1 ? corretores[0].id : "", cliente: "", telefone: "", etapa: etapa ?? etapas[0]?.nome ?? "", valor: "", fechamento: "" });
+    setNovo({ corretor_id: ehCorretor ? tokenCorretorId() : corretores.length === 1 ? corretores[0].id : "", cliente: "", telefone: "", etapa: etapa ?? etapas[0]?.nome ?? "", valor: "", fechamento: "" });
     setNovoOpen(true);
   };
 
@@ -181,7 +183,7 @@ export default function Negociacoes({ onAuthError, onAbrirCliente }: { onAuthErr
           </div>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Botao onClick={() => { setRascunho(etapas.map((e) => ({ ...e }))); setConfigOpen(true); }}><Settings2 className="w-4 h-4" aria-hidden /> Configurações</Botao>
+          {!ehCorretor && <Botao onClick={() => { setRascunho(etapas.map((e) => ({ ...e }))); setConfigOpen(true); }}><Settings2 className="w-4 h-4" aria-hidden /> Configurações</Botao>}
           <Botao variante="primario" onClick={() => abrirNovo()}><Plus className="w-4 h-4" aria-hidden /> Novo atendimento</Botao>
         </div>
       </header>
@@ -195,10 +197,12 @@ export default function Negociacoes({ onAuthError, onAbrirCliente }: { onAuthErr
         <Seletor aria-label="Situação" value={status} onChange={(e) => setStatus(e.target.value as Status)} className="!w-auto">
           <option value="aberto">Abertos</option><option value="ganho">Ganhos</option><option value="perdido">Perdidos</option><option value="todos">Todos</option>
         </Seletor>
-        <Seletor aria-label="Corretor" value={corretor} onChange={(e) => setCorretor(e.target.value)} className="!w-auto">
-          <option value="">Todos os corretores</option><option value="sem">Sem responsável</option>
-          {corretores.map((c) => <option key={c.id} value={c.id}>{c.nome || c.telefone_mascarado}</option>)}
-        </Seletor>
+        {!ehCorretor && (
+          <Seletor aria-label="Corretor" value={corretor} onChange={(e) => setCorretor(e.target.value)} className="!w-auto">
+            <option value="">Todos os corretores</option><option value="sem">Sem responsável</option>
+            {corretores.map((c) => <option key={c.id} value={c.id}>{c.nome || c.telefone_mascarado}</option>)}
+          </Seletor>
+        )}
         <button type="button" onClick={() => setPorValor((v) => !v)} aria-pressed={porValor} className="inline-flex items-center gap-2 px-4 py-2 rounded-full text-sm" style={{ border: "1px solid var(--line-2)", background: porValor ? "var(--accent-soft)" : "transparent", color: porValor ? "var(--accent-text)" : "var(--text-2)" }}>
           <CircleDollarSign className="w-4 h-4" aria-hidden /> Valor
         </button>
@@ -409,7 +413,7 @@ export default function Negociacoes({ onAuthError, onAbrirCliente }: { onAuthErr
         <Modal titulo="Novo atendimento" onFechar={() => setNovoOpen(false)} descricao="Se o cliente ainda não está na carteira do corretor, ele é criado.">
           <form onSubmit={criarNegocio} className="space-y-4">
             {novoErro && <Aviso tom="erro">{novoErro}</Aviso>}
-            <Campo id="nn-corretor" rotulo="Corretor *"><Seletor id="nn-corretor" required value={novo.corretor_id} onChange={(e) => setNovo({ ...novo, corretor_id: e.target.value })}><option value="">Selecione</option>{corretores.map((c) => <option key={c.id} value={c.id}>{c.nome || c.telefone_mascarado}</option>)}</Seletor></Campo>
+            {!ehCorretor && <Campo id="nn-corretor" rotulo="Corretor *"><Seletor id="nn-corretor" required value={novo.corretor_id} onChange={(e) => setNovo({ ...novo, corretor_id: e.target.value })}><option value="">Selecione</option>{corretores.map((c) => <option key={c.id} value={c.id}>{c.nome || c.telefone_mascarado}</option>)}</Seletor></Campo>}
             <div className="grid grid-cols-2 gap-3">
               <div className="col-span-2 sm:col-span-1"><Campo id="nn-cliente" rotulo="Cliente *"><Entrada id="nn-cliente" required minLength={2} value={novo.cliente} onChange={(e) => setNovo({ ...novo, cliente: e.target.value })} /></Campo></div>
               <div className="col-span-2 sm:col-span-1"><Campo id="nn-tel" rotulo="Telefone"><Entrada id="nn-tel" value={novo.telefone} onChange={(e) => setNovo({ ...novo, telefone: e.target.value })} placeholder="Se for cliente novo" /></Campo></div>

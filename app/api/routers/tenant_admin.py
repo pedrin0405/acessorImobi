@@ -497,7 +497,8 @@ async def listar_mensagens_conversa(
         if not corretor:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Corretor não encontrado.")
 
-        mensagens = await ConversaPortalService(session, admin.tenant_id).mensagens(corretor_id, limit=limit)
+        # notas internas são da equipe: o corretor não as recebe nem pela API
+        mensagens = await ConversaPortalService(session, admin.tenant_id).mensagens(corretor_id, limit=limit, com_notas=not admin.escopo)
 
         codigos = sorted({
             int(a.group(1))
