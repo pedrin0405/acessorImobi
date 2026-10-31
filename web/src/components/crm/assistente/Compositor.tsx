@@ -221,7 +221,7 @@ const Compositor = forwardRef<CompositorRef, Props>(function Compositor(
         onDrop={(e) => { e.preventDefault(); setArrastando(false); adicionar(Array.from(e.dataTransfer.files)); }}
         data-beam="on"
         data-pensando={ocupado ? "sim" : "nao"}
-        className="assist-beam relative rounded-3xl border transition-[border-color,box-shadow] duration-200 focus-within:border-[var(--accent)] focus-within:shadow-[0_0_0_4px_color-mix(in_srgb,var(--accent)_13%,transparent)]"
+        className="assist-beam relative rounded-3xl border transition-[border-color,box-shadow] duration-200 focus-within:border-[var(--accent)] focus-within:shadow-[0_0_0_3px_color-mix(in_srgb,var(--accent)_8%,transparent)]"
         style={{ background: "var(--card)", borderColor: arrastando ? "var(--accent)" : "var(--line-2)" }}
       >
         {anexos.length > 0 && (
