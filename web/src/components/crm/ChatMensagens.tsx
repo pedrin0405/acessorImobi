@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Check, CheckCheck, Loader2, Lock, Mic, Pause, Play, UserRound, Workflow, X } from "lucide-react";
+import { Check, CheckCheck, FileText, Loader2, Lock, Mic, Pause, Play, UserRound, Workflow, X } from "lucide-react";
 import CartaoImovelBase from "./imoveis/CartaoImovel";
 import { fetchApi } from "@/lib/api";
 
@@ -18,7 +18,7 @@ export interface MensagemChat {
   autor?: string | null;
   /** Como a IA respondeu; vem só na primeira mensagem de cada resposta do agente. */
   /** Ficha enviada pela equipe como ação rápida (hoje só de lead). */
-  cartao?: { tipo: string; lead?: Record<string, unknown> } | null;
+  cartao?: { tipo: string; lead?: Record<string, unknown>; titulo?: string; modelo?: string; imoveis?: { codigo: number; tipo?: string | null; bairro?: string | null; foto_url?: string | null }[]; arquivo?: string } | null;
   processo?: { rota: string; modelo?: string | null; total_ms?: number | null; passos: Record<string, unknown>[] } | null;
 }
 
@@ -157,6 +157,57 @@ function CartaoLead({ m }: { m: MensagemChat }) {
           <div key={r} className="grid grid-cols-[6.2rem_1fr] gap-2"><dt style={{ color: "var(--text-3)" }}>{r}</dt><dd className="min-w-0 [overflow-wrap:anywhere]" style={{ color: "var(--text)" }}>{v}</dd></div>
         ))}
       </dl>
+    </article>
+  );
+}
+
+/** Book em PDF enviado pelo agente ou pela equipe: abre o arquivo com o token (o storage é privado). */
+function CartaoBook({ m }: { m: MensagemChat }) {
+  const c = m.cartao;
+  const total = c?.imoveis?.length || 0;
+  const nome = c?.arquivo || "book.pdf";
+  const [abrindo, setAbrindo] = useState(false);
+  const [erro, setErro] = useState(false);
+  const fotos = (c?.imoveis || []).map((i) => i.foto_url).filter(Boolean).slice(0, 3) as string[];
+  const abrir = async () => {
+    if (!m.midia) return;
+    setAbrindo(true); setErro(false);
+    try {
+      const res = await fetchApi(m.midia);
+      if (!res.ok) throw new Error("falha");
+      window.open(URL.createObjectURL(await res.blob()), "_blank", "noopener");
+    } catch {
+      setErro(true);
+    } finally {
+      setAbrindo(false);
+    }
+  };
+  return (
+    <article className="rounded-2xl overflow-hidden border border-[var(--line-2)] w-full max-w-[22rem]" style={{ background: "color-mix(in srgb, var(--info) 8%, var(--card))" }}>
+      {fotos.length > 0 && (
+        <div className="grid gap-px" style={{ gridTemplateColumns: `repeat(${fotos.length}, 1fr)` }}>
+          {fotos.map((f, i) => (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img key={i} src={f} alt="" referrerPolicy="no-referrer" className="w-full h-24 object-cover" />
+          ))}
+        </div>
+      )}
+      <div className="flex items-center gap-3 px-3.5 py-3">
+        <span className="w-10 h-12 rounded-lg flex items-center justify-center shrink-0" style={{ background: "var(--card-2)", color: "var(--danger)" }}><FileText className="w-5 h-5" aria-hidden /></span>
+        <div className="min-w-0 flex-1">
+          <p className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--text-4)" }}>Book{total ? ` · ${total} ${total === 1 ? "imóvel" : "imóveis"}` : ""}</p>
+          <h4 className="text-sm font-semibold truncate" style={{ color: "var(--text)" }}>{c?.titulo || m.conteudo || "Book de imóveis"}</h4>
+          <p className="text-xs truncate" style={{ color: "var(--text-3)" }}>{nome}{c?.modelo ? ` · ${c.modelo}` : ""}</p>
+        </div>
+      </div>
+      {m.midia && (
+        <div className="px-3.5 pb-3">
+          <button type="button" onClick={abrir} disabled={abrindo} className="inline-flex items-center gap-1.5 text-xs font-medium text-[var(--accent-text)] hover:underline disabled:opacity-50">
+            {abrindo ? <Loader2 className="w-3.5 h-3.5 animate-spin" aria-hidden /> : <FileText className="w-3.5 h-3.5" aria-hidden />} Abrir PDF
+          </button>
+          {erro && <span role="alert" className="ml-2 text-[11px]" style={{ color: "var(--danger)" }}>Não foi possível abrir o arquivo.</span>}
+        </div>
+      )}
     </article>
   );
 }
@@ -458,6 +509,19 @@ export default function ChatMensagens({ mensagens, onProcesso }: { mensagens: Me
                     {hora(ultima.created_at)}
                     <CheckCheck className="w-3.5 h-3.5" style={{ color: "var(--accent)" }} aria-label="Enviadas" />
                   </span>
+                </div>
+              </div>
+            </div>
+          );
+        }
+        if (it.tipo === "msg" && it.m.direcao === "outbound" && (it.m.cartao?.tipo === "book" || it.m.tipo === "document")) {
+          return (
+            <div key={it.chave} className="flex justify-end mt-3">
+              <div>
+                {it.m.origem === "humano" && <p className="px-1 pb-2 text-[11px] font-semibold" style={{ color: "var(--info)" }}>Equipe · {it.m.autor || "portal"}</p>}
+                <CartaoBook m={it.m} />
+                <div className="flex items-center justify-end gap-1 mt-2 px-1 text-[10px]" style={{ color: "var(--text-4)" }}>
+                  {hora(it.m.created_at)}<CheckCheck className="w-3.5 h-3.5" style={{ color: "var(--accent)" }} aria-label="Enviado" />
                 </div>
               </div>
             </div>

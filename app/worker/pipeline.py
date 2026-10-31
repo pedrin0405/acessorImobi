@@ -10,6 +10,7 @@ Fluxo (seção 6 da spec):
 """
 import asyncio
 import hashlib
+import base64
 import json
 import random
 import re
@@ -439,6 +440,7 @@ async def _processar_conversa(job: dict) -> None:
             mensagem_id=mensagem_id,
             trace=trace,
             imoveis=resposta.imoveis,
+            book=resposta.book,
             audio=quer_audio,
             voz=agent_config.get("voz"),
         )
@@ -777,6 +779,7 @@ async def _enviar_resposta(
     imoveis: Optional[List[Dict[str, Any]]] = None,
     audio: bool = False,
     voz: Optional[str] = None,
+    book: Optional[Dict[str, Any]] = None,
 ) -> None:
     """Envia mensagem via Evolution API e persiste no banco.
 
@@ -907,6 +910,26 @@ async def _enviar_resposta(
                 await _texto(texto)
             except Exception as e:
                 log.error("envio_whatsapp_falhou", error=str(e))
+
+    if book:
+        try:
+            await client.send_media(
+                instance_id=ws.instance_id, to=corretor.telefone, media_url=base64.b64encode(book["pdf"]).decode(),
+                caption=f"Book de imóveis · {book['titulo']}", mediatype="document", mimetype="application/pdf", file_name=book["arquivo"],
+            )
+            arquivo = await guardar_midia(tenant_id, corretor.id, book["pdf"], "pdf", "application/pdf")
+            await _persistir_saida(
+                session, tenant_id, corretor, f"Book com {book['quantidade']} {'imóvel' if book['quantidade'] == 1 else 'imóveis'}", "document",
+                {**(trace or {}), "cartao": {"tipo": "book", "titulo": book["titulo"], "modelo": book["modelo"], "arquivo": book["arquivo"], "imoveis": book["imoveis"]}},
+                midia_url=arquivo,
+            )
+            enviados += 1
+        except Exception as e:
+            log.error("envio_book_falhou", error=str(e)[:200])
+            try:
+                await _texto("Não consegui enviar o PDF agora. Posso mandar os cartões com as fotos?")
+            except Exception:
+                pass
 
     if not enviados:
         return

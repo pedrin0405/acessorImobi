@@ -2,13 +2,14 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import {
-  Bell, Brain, Building2, ChevronLeft, CreditCard, Globe, MapPin, Plug, QrCode, Search, Shapes, Shield, Shuffle, Sparkles, Tags, User, Users, AlarmClock,
+  Bell, BookOpen, Brain, Building2, ChevronLeft, CreditCard, Globe, MapPin, Plug, QrCode, Search, Shapes, Shield, Shuffle, Sparkles, Tags, User, Users, AlarmClock,
 } from "lucide-react";
 import { Selo, useApi } from "./ui";
 import { VozSecao, MemoriaSecao } from "./secoes/Acessor";
 import { IntegracoesSecao, LembretesSecao } from "./secoes/Canais";
 import { PerfilSecao, SegurancaSecao } from "./secoes/Conta";
 import { DadosSecao, EquipeSecao, RoletaSecao } from "./secoes/Imobiliaria";
+import { BooksSecao } from "./secoes/Books";
 import { CamposSecao, LocalidadesSecao, TiposSecao } from "./secoes/Personalizacao";
 
 type Icone = React.ComponentType<{ className?: string }>;
@@ -28,6 +29,7 @@ const ITENS: Item[] = [
   { id: "campos", grupo: "Personalização", rotulo: "Campos & Opções", icone: Tags, palavras: "origem lead motivos de perda etiquetas forma de pagamento tipos de imóvel portais listas" },
   { id: "localidades", grupo: "Personalização", rotulo: "Localidades", icone: MapPin, palavras: "cidades bairros regiões" },
   { id: "tipos", grupo: "Personalização", rotulo: "Tipos de atividade", icone: Shapes, palavras: "agenda visita reunião ligação ícone cor" },
+  { id: "books", grupo: "Personalização", rotulo: "Books de imóveis", icone: BookOpen, palavras: "pdf book catálogo modelo imóveis fotos capa layout enviar" },
   { id: "whatsapp", grupo: "Canais & Publicação", rotulo: "WhatsApp", icone: QrCode, palavras: "número qr código conectar agente instância" },
   { id: "lembretes", grupo: "Canais & Publicação", rotulo: "Lembretes da agenda", icone: AlarmClock, palavras: "avisos antecedência compromissos mensagem" },
   { id: "integracoes", grupo: "Canais & Publicação", rotulo: "Integrações", icone: Plug, palavras: "imoview google calendar meta ads portais crm sincronizar" },
@@ -101,6 +103,7 @@ export default function Configuracoes({
       case "campos": return <CamposSecao onAuthError={onAuthError} />;
       case "localidades": return <LocalidadesSecao onAuthError={onAuthError} />;
       case "tipos": return <TiposSecao onAuthError={onAuthError} />;
+      case "books": return <BooksSecao onAuthError={onAuthError} />;
       case "whatsapp": return renderWhatsApp();
       case "lembretes": return <LembretesSecao onAuthError={onAuthError} />;
       case "integracoes": return <IntegracoesSecao onAuthError={onAuthError} onVerClientes={() => onIr("leads")} />;

@@ -2,6 +2,7 @@
 Conversa vista pelo portal da imobiliária: mensagens com origem e processo da IA,
 envio pela equipe, notas internas, ficha do corretor e resumo.
 """
+import base64
 import json
 import time
 from datetime import datetime, timedelta, timezone
@@ -15,7 +16,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.domain.crm.service import CrmService, resumo_perfil
 from app.integration.llm.gemini import GeminiClient, GeminiError
 from app.domain.conversa import acoes_rapidas
+from app.domain.book import servico as servico_book
+from app.domain.book.modelos import ModelosBook
 from app.domain.imovel import consulta as consulta_imoveis
+from app.shared.storage import guardar_midia
 from app.integration.whatsapp.evolution import EvolutionClient
 from app.shared.security import mask_phone
 
@@ -203,7 +207,10 @@ class ConversaPortalService:
             raise PortalErro("O WhatsApp do agente não está conectado. Conecte o número para enviar mensagens.", 503)
         return sessao.instance_id
 
-    async def montar_acao(self, tipo: str, codigos: List[int], lead_id: Optional[UUID], mensagem: str = "") -> List[Dict[str, Any]]:
+    async def montar_acao(
+        self, tipo: str, codigos: List[int], lead_id: Optional[UUID], mensagem: str = "",
+        modelo_id: Optional[UUID] = None, titulo: str = "",
+    ) -> List[Dict[str, Any]]:
         """Mensagens que a ação rápida enviará, na ordem. Serve à prévia e ao envio."""
         saida: List[Dict[str, Any]] = []
         mensagem = (mensagem or "").strip()
@@ -216,6 +223,19 @@ class ConversaPortalService:
                 raise PortalErro("Escolha ao menos um imóvel da carteira.")
             for item in itens:
                 saida.append({"tipo": "image", "texto": acoes_rapidas.texto_imovel(item), "foto_url": item.get("foto_url"), "cartao": None, "codigo": item["codigo"]})
+        elif tipo == "book":
+            codigos = list(dict.fromkeys(codigos))[: servico_book.MAX_IMOVEIS]
+            itens = await consulta_imoveis.obter_itens(self._session, self._tenant_id, codigos)
+            if not itens:
+                raise PortalErro("Escolha ao menos um imóvel da carteira.")
+            modelo = await ModelosBook(self._session).obter(self._tenant_id, modelo_id)
+            titulo = (titulo or "").strip()[:80]
+            saida.append({
+                "tipo": "document", "texto": f"Book com {len(itens)} {'imóvel' if len(itens) == 1 else 'imóveis'}", "foto_url": None,
+                "cartao": {"tipo": "book", "titulo": titulo or modelo["config"]["titulo_capa"], "modelo": modelo["nome"],
+                           "imoveis": [{"codigo": i["codigo"], "tipo": i["tipo"], "bairro": i["bairro"], "foto_url": i.get("foto_url")} for i in itens]},
+                "arquivo": f"book-{len(itens)}-imoveis.pdf", "codigos": [i["codigo"] for i in itens],
+            })
         elif tipo == "lead":
             if not lead_id:
                 raise PortalErro("Escolha o cliente que será enviado.")
@@ -233,15 +253,37 @@ class ConversaPortalService:
             raise PortalErro("Ação rápida desconhecida.")
         return saida
 
-    async def enviar_acao(self, corretor, tipo: str, codigos: List[int], lead_id: Optional[UUID], mensagem: str, autor: str) -> Dict[str, Any]:
-        partes = await self.montar_acao(tipo, codigos, lead_id, mensagem)
+    async def pdf_do_book(self, corretor, codigos: List[int], modelo_id: Optional[UUID], titulo: str) -> Dict[str, Any]:
+        try:
+            return await servico_book.gerar_book(
+                self._session, self._tenant_id, codigos, modelo_id, (titulo or "").strip()[:80] or None,
+                {"nome": corretor.nome, "telefone": None},
+            )
+        except servico_book.BookErro as e:
+            raise PortalErro(str(e))
+
+    async def enviar_acao(
+        self, corretor, tipo: str, codigos: List[int], lead_id: Optional[UUID], mensagem: str, autor: str,
+        modelo_id: Optional[UUID] = None, titulo: str = "",
+    ) -> Dict[str, Any]:
+        partes = await self.montar_acao(tipo, codigos, lead_id, mensagem, modelo_id, titulo)
         instancia = await self._instancia()
         cliente = EvolutionClient()
         enviadas: List[Dict[str, Any]] = []
         for parte in partes:
             foto = parte["foto_url"]
             try:
-                if foto:
+                if parte["tipo"] == "document":
+                    book = await self.pdf_do_book(corretor, parte["codigos"], modelo_id, titulo)
+                    parte["arquivo"] = book["arquivo"]
+                    parte["cartao"]["arquivo"] = book["arquivo"]
+                    foto = await guardar_midia(self._tenant_id, corretor.id, book["pdf"], "pdf", "application/pdf")
+                    await cliente.send_media(
+                        instance_id=instancia, to=corretor.telefone, media_url=base64.b64encode(book["pdf"]).decode(),
+                        caption=f"Book de imóveis · {parte['cartao']['titulo']}", mediatype="document",
+                        mimetype="application/pdf", file_name=book["arquivo"],
+                    )
+                elif foto:
                     try:
                         await cliente.send_media(instance_id=instancia, to=corretor.telefone, media_url=foto, caption=parte["texto"][:1000], file_name=f"imovel-{parte.get('codigo', 'foto')}.jpg")
                     except Exception as e:  # noqa: BLE001
@@ -268,7 +310,8 @@ class ConversaPortalService:
             )).first()
             enviadas.append({
                 "id": str(linha.id), "direcao": "outbound", "tipo": parte["tipo"], "conteudo": parte["texto"], "status": "sent",
-                "midia": foto, "created_at": linha.created_at.isoformat(), "origem": "humano", "autor": autor,
+                "midia": f"/admin/conversas/{corretor.id}/mensagens/{linha.id}/midia" if parte["tipo"] == "document" and foto else foto,
+                "created_at": linha.created_at.isoformat(), "origem": "humano", "autor": autor,
                 "cartao": parte["cartao"], "processo": None,
             })
         if not enviadas:

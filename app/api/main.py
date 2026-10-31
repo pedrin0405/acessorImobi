@@ -23,6 +23,7 @@ from app.api.routers import (
     visao_geral_admin,
     crm_admin,
     dev_panel,
+    books_admin,
     imoveis_admin,
     imoview_admin,
     imoview_leads_admin,
@@ -102,6 +103,7 @@ app.include_router(crm_admin.router, prefix="/admin/crm", tags=["CRM"])
 app.include_router(imoview_leads_admin.router, prefix="/admin/integracoes/imoview/leads", tags=["Imoview"])
 app.include_router(imoview_admin.router, prefix="/admin/integracoes/imoview", tags=["Integração Imoview"])
 app.include_router(imoveis_admin.router, prefix="/admin/imoveis", tags=["Imóveis"])
+app.include_router(books_admin.router, prefix="/admin/books", tags=["Books"])
 app.include_router(visao_geral_admin.router, prefix="/admin/visao-geral", tags=["Visão Geral"])
 app.include_router(conversas_admin.router, prefix="/admin", tags=["Conversas"])
 app.include_router(configuracoes.router, prefix="/admin/configuracoes", tags=["Configurações"])

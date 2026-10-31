@@ -25,6 +25,7 @@ from app.domain.cliente.service import ClienteService
 from app.domain.crm.acoes import executar_acao, resumo_acao
 from app.domain.crm.service import CrmService, resumo_perfil
 from app.domain.conversa import memoria as memoria_conversa
+from app.domain.book import servico as servico_book
 from app.domain.imovel.service import ImovelService
 from app.integration.llm.gemini import GeminiClient, GeminiError
 from app.integration.llm.tom import TONS, remover_palavras_proibidas
@@ -47,6 +48,8 @@ class ToolResult:
     fallback: bool = False
     # Imóveis retornados pela busca, para envio de foto + legenda pelo WhatsApp.
     imoveis: Optional[List[Dict[str, Any]]] = None
+    # Book em PDF montado a pedido do corretor (bytes + metadados); enviado como documento.
+    book: Optional[Dict[str, Any]] = None
     # Como a resposta foi produzida ('regras', 'gemini', 'ollama' ou 'fallback') e cada
     # etapa, para o portal mostrar o processo da IA. Só metadados, nunca segredos.
     rota: str = ""
@@ -338,6 +341,19 @@ AGENT_TOOLS = [
                         ),
                     },
                     "codigo": {"type": "integer", "description": "Código específico do imóvel no Imoview."},
+                    "formato": {
+                        "type": "string",
+                        "enum": ["cards", "book"],
+                        "description": (
+                            "'cards' (padrão): fotos com legenda. 'book': PDF profissional com todas as fotos e "
+                            "dados. Use 'book' quando o corretor pedir pdf, book, catálogo, apresentação ou portfólio."
+                        ),
+                    },
+                    "titulo": {"type": "string", "description": "Título da capa do book (ex.: 'Imóveis na Orla'). Opcional."},
+                    "codigos": {
+                        "type": "array", "items": {"type": "integer"},
+                        "description": "Com formato 'book': códigos de imóveis já mostrados na conversa, para montar o book deles sem nova busca.",
+                    },
                 },
                 "required": ["finalidade"],
             },
@@ -604,6 +620,8 @@ def _texto_resultado_imoveis(
         f"Olha o que encontrei{para} — {rotulo}:\n\n",
         f"Boa! Separei {rotulo}{para}:\n\n",
     ))
+    if total > 1:
+        intro = intro.rstrip(": \n") + " (se preferir, é só pedir que eu monto um book em PDF com todos).\n\n"
     textos = [im["resumo_texto"] for im in imoveis]
     rodape = random.choice((
         "*Copie e envie ao seu cliente!*",
@@ -668,6 +686,7 @@ class AgentOrchestrator:
         self.cliente_service = ClienteService(session)
         self.crm = CrmService(session)
         self._cfg: Dict[str, Any] = {}
+        self._book: Optional[Dict[str, Any]] = None
 
     async def _carregar_config_tenant(self) -> Dict[str, Any]:
         res = await self._session.execute(
@@ -914,6 +933,9 @@ class AgentOrchestrator:
             vagas = int(match_vagas.group(1)) if match_vagas else None
 
             valor_max = _parse_valor_max(texto)
+            quer_book = bool(re.search(r"\b(?:pdf|book|books|catalogo|portfolio|brochura|apresentacao)\b", texto))
+            if quer_book and re.search(r"\b(?:desse|desses|dessa|dessas|esses|essas|acima|anterior|anteriores|enviados|mandou|mandados)\b", texto):
+                return None  # refere-se a imóveis já mostrados: a IA monta o book pelos códigos da conversa
 
             finalidade = None
             if re.search(r"\b(?:venda|vendas|vender|vendendo|comprar|compra|comprando)\b", texto):
@@ -951,13 +973,44 @@ class AgentOrchestrator:
                     valor_max=valor_max,
                 )
 
-            textos = [im["resumo_texto"] for im in imoveis]
+            if quer_book:
+                titulo = f"Imóveis em {bairro}" if bairro else None
+                texto_book = await self._montar_book(imoveis, titulo)
+                if texto_book:
+                    return ToolResult(texto=texto_book)
             return ToolResult(
                 texto=_texto_resultado_imoveis(imoveis, finalidade),
                 imoveis=imoveis,
             )
 
         return None
+
+    def _dados_do_corretor(self) -> Dict[str, Any]:
+        digitos = "".join(ch for ch in str(getattr(self.corretor, "telefone", "") or "") if ch.isdigit())
+        if digitos.startswith("55") and len(digitos) in (12, 13):
+            digitos = digitos[2:]
+        fone = f"({digitos[:2]}) {digitos[2:-4]}-{digitos[-4:]}" if len(digitos) in (10, 11) else None
+        return {"nome": getattr(self.corretor, "nome", None), "telefone": fone}
+
+    async def _montar_book(
+        self, imoveis: Optional[List[Dict[str, Any]]], titulo: Optional[str], codigos: Optional[List[int]] = None,
+    ) -> Optional[str]:
+        """Gera o PDF com o modelo padrão da imobiliária; guarda em self._book e devolve o texto da resposta."""
+        codigos = codigos or [i["codigo"] for i in (imoveis or []) if i.get("codigo")]
+        try:
+            r = await servico_book.gerar_book(
+                self._session, self.tenant_id, codigos, None, (titulo or "").strip()[:80] or None, self._dados_do_corretor(),
+            )
+        except Exception as e:  # noqa: BLE001 - sem o PDF o corretor ainda recebe os cartões
+            log.warning("book_falhou", error=str(e)[:200])
+            return None
+        n = len(r["imoveis"])
+        self._book = {
+            "pdf": r["pdf"], "arquivo": r["arquivo"], "titulo": r["titulo"], "modelo": r["modelo"], "quantidade": n,
+            "imoveis": [{"codigo": i["codigo"], "tipo": i.get("tipo"), "bairro": i.get("bairro"), "foto_url": i.get("foto_url")} for i in r["imoveis"]],
+        }
+        self._passo("Book", f"Montou o PDF com {n} imóvel(is) no modelo {r['modelo']}", bytes=len(r["pdf"]))
+        return f"Montei o book em PDF com {n} {'imóvel' if n == 1 else 'imóveis'} e estou enviando agora."
 
     async def _executar_ferramenta(
         self, tool_name: str, args: Dict[str, Any]
@@ -970,6 +1023,16 @@ class AgentOrchestrator:
             except (TypeError, ValueError):
                 limite = settings.imoview_max_results
             limite = max(1, min(limite, 10))
+            quer_book = args.get("formato") == "book"
+            if quer_book and isinstance(args.get("codigos"), list) and args["codigos"]:
+                try:
+                    codigos = [int(c) for c in args["codigos"]][: servico_book.MAX_IMOVEIS]
+                except (TypeError, ValueError):
+                    codigos = []
+                if codigos:
+                    texto_book = await self._montar_book(None, args.get("titulo"), codigos)
+                    if texto_book:
+                        return texto_book, None, None
             imoveis = await self.imovel_service.buscar(
                 tenant_id=self.tenant_id,
                 finalidade=finalidade,
@@ -993,6 +1056,10 @@ class AgentOrchestrator:
                 )
                 return vazio.texto, None, vazio.imoveis
 
+            if quer_book:
+                texto_book = await self._montar_book(imoveis, args.get("titulo"))
+                if texto_book:
+                    return texto_book, None, None
             return _texto_resultado_imoveis(imoveis, finalidade), None, imoveis
 
         elif tool_name == "consultar_clientes":
@@ -1325,7 +1392,9 @@ class AgentOrchestrator:
             "ou condomínios citados. Se o corretor não informar a finalidade, deduza pelo "
             "valor: a partir de R$ 50.000 é venda; abaixo disso, aluguel. "
             "Quando o corretor pedir imóveis, use SEMPRE a ferramenta consultar_imoveis; "
-            "nunca invente imóveis. Quando pedir clientes do Imoview, use consultar_clientes.\n\n"
+            "nunca invente imóveis. Se pedir PDF, book, catálogo ou apresentação dos imóveis, use "
+            "consultar_imoveis com formato 'book' (com os códigos já mostrados em 'codigos', se ele falar de imóveis "
+            "da conversa). Sem esse pedido, envie os cartões com foto. Quando pedir clientes do Imoview, use consultar_clientes.\n\n"
             "## Carteira, funil e agenda do corretor\n"
             "O Acessor guarda a carteira do corretor. Quando ele contar de um cliente e do que o "
             "cliente procura, use registrar_lead (ou atualizar_lead se o cliente já existe). "
@@ -1417,7 +1486,7 @@ class AgentOrchestrator:
 
             # Segunda passada: o resultado bruto da ferramenta vira uma resposta
             # humana. Propostas de escrita e taxas ficam exatamente como estão.
-            if not proposta and nome_funcao in ("consultar_imoveis", "consultar_clientes", "match_lead"):
+            if not proposta and not self._book and nome_funcao in ("consultar_imoveis", "consultar_clientes", "match_lead"):
                 t2 = time.perf_counter()
                 try:
                     natural = await cliente.gerar_apos_ferramenta(
@@ -1529,10 +1598,12 @@ class AgentOrchestrator:
         """
         self._passos = []
         self._rota = ""
+        self._book = None
         self._cfg = await self._carregar_config_tenant()
         resultado = await self._processar(
             mensagem, historico, self._cfg, entrada_audio, resposta_em_audio
         )
+        resultado.book = self._book
         resultado.rota = self._rota or ("fallback" if resultado.fallback else "")
         resultado.passos = list(self._passos)
         # Garantia além da instrução no prompt: palavra proibida nunca sai.

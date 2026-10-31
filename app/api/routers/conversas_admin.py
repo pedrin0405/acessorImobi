@@ -2,7 +2,7 @@
 from typing import List, Literal, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from pydantic import BaseModel, Field
 
 from app.api.middleware.auth import require_admin
@@ -19,8 +19,10 @@ class TextoEntrada(BaseModel):
 
 
 class AcaoRapida(BaseModel):
-    tipo: Literal["imoveis", "lead"]
-    codigos: List[int] = Field(default_factory=list, max_length=6)
+    tipo: Literal["imoveis", "lead", "book"]
+    codigos: List[int] = Field(default_factory=list, max_length=12)
+    modelo_id: Optional[UUID] = None
+    titulo: str = Field(default="", max_length=80)
     lead_id: Optional[UUID] = None
     mensagem: str = Field(default="", max_length=1000)
 
@@ -63,9 +65,20 @@ async def previa_acao(corretor_id: UUID, body: AcaoRapida, admin=Depends(require
     async with get_session(admin.tenant_id) as session:
         await _corretor(session, admin, corretor_id)
         try:
-            return {"mensagens": await ConversaPortalService(session, admin.tenant_id).montar_acao(body.tipo, body.codigos, body.lead_id, body.mensagem)}
+            return {"mensagens": await ConversaPortalService(session, admin.tenant_id).montar_acao(body.tipo, body.codigos, body.lead_id, body.mensagem, body.modelo_id, body.titulo)}
         except PortalErro as e:
             raise _http(e)
+
+
+@router.post("/conversas/{corretor_id}/acoes-rapidas/book-pdf", summary="PDF do book para conferir antes de enviar")
+async def book_pdf(corretor_id: UUID, body: AcaoRapida, admin=Depends(require_admin)):
+    async with get_session(admin.tenant_id) as session:
+        corretor = await _corretor(session, admin, corretor_id)
+        try:
+            book = await ConversaPortalService(session, admin.tenant_id).pdf_do_book(corretor, body.codigos, body.modelo_id, body.titulo)
+        except PortalErro as e:
+            raise _http(e)
+    return Response(book["pdf"], media_type="application/pdf", headers={"Content-Disposition": f'inline; filename="{book["arquivo"]}"'})
 
 
 @router.post("/conversas/{corretor_id}/acoes-rapidas/enviar", summary="Envia ao corretor imóveis da carteira ou a ficha de um lead")
@@ -74,7 +87,7 @@ async def enviar_acao(corretor_id: UUID, body: AcaoRapida, admin=Depends(require
         corretor = await _corretor(session, admin, corretor_id)
         try:
             resultado = await ConversaPortalService(session, admin.tenant_id).enviar_acao(
-                corretor, body.tipo, body.codigos, body.lead_id, body.mensagem, admin.sub,
+                corretor, body.tipo, body.codigos, body.lead_id, body.mensagem, admin.sub, body.modelo_id, body.titulo,
             )
         except PortalErro as e:
             raise _http(e)

@@ -1,12 +1,12 @@
 "use client";
 
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { ArrowUp, Building2, Loader2, Lock, Plus, Smile, UserRound } from "lucide-react";
+import { ArrowUp, BookOpen, Building2, Loader2, Lock, Plus, Smile, UserRound } from "lucide-react";
 
 const EMOJIS = ["😀", "😊", "😉", "😍", "🙂", "😅", "😂", "🤝", "👍", "👏", "🙏", "💪", "🎉", "✅", "⚠️", "❗", "📍", "🏠", "🏢", "🔑", "📅", "⏰", "📞", "💬", "📎", "💰", "📄", "👋", "🤔", "😬", "🙌", "✨"];
 
 export type ModoCompositor = "mensagem" | "nota";
-export type AcaoRapidaCompositor = "imoveis" | "lead";
+export type AcaoRapidaCompositor = "imoveis" | "lead" | "book";
 
 export default function CompositorConversa({
   modo,
@@ -147,7 +147,7 @@ export default function CompositorConversa({
 
       {abrirMenu && (
         <div role="menu" aria-label="Ações rápidas" className="assist-pop absolute left-6 bottom-full mb-1 z-20 w-72 p-1.5 rounded-2xl shadow-2xl" style={{ background: "var(--card)", border: "1px solid var(--line-2)" }}>
-          {([["imoveis", "Enviar imóveis", "Escolha da carteira, com foto e valor", Building2], ["lead", "Enviar cliente", "Ficha do lead: contato, busca e responsável", UserRound]] as const).map(([id, titulo, descricao, Icone]) => (
+          {([["imoveis", "Enviar imóveis", "Escolha da carteira, com foto e valor", Building2], ["book", "Enviar book em PDF", "Seleção de imóveis em PDF, com fotos e dados", BookOpen], ["lead", "Enviar cliente", "Ficha do lead: contato, busca e responsável", UserRound]] as const).map(([id, titulo, descricao, Icone]) => (
             <button key={id} type="button" role="menuitem" onClick={() => { setMenu(false); if (texto === "/") onTexto(""); onAcao!(id); }} className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left hover:bg-[var(--hover-solid)]">
               <span className="w-9 h-9 rounded-full flex items-center justify-center shrink-0" style={{ background: "var(--card-2)", color: "var(--accent-text)" }}><Icone className="w-4 h-4" aria-hidden /></span>
               <span className="min-w-0"><span className="block text-sm font-medium" style={{ color: "var(--text)" }}>{titulo}</span><span className="block text-xs" style={{ color: "var(--text-3)" }}>{descricao}</span></span>
