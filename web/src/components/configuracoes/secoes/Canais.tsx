@@ -4,6 +4,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { BellRing, Pencil, Plus, Trash2 } from "lucide-react";
 import ImoviewCard from "../integracoes/ImoviewCard";
 import LeadsImoviewCard from "../integracoes/LeadsImoviewCard";
+import FunilImoviewCard from "../integracoes/FunilImoviewCard";
 import { Aviso, Botao, Bloco, Cartao, Carregando, Entrada, Interruptor, Selo, Seletor, Titulo, Vazio, Area, useApi } from "../ui";
 import { ICONES_ATIVIDADE } from "./Personalizacao";
 
@@ -145,6 +146,7 @@ export function IntegracoesSecao({ onAuthError, onVerClientes }: { onAuthError: 
       <Titulo titulo="Integrações" descricao="Conecte o Acessor às ferramentas que a imobiliária já usa." />
       <Bloco titulo="Imóveis"><ImoviewCard onAuthError={onAuthError} /></Bloco>
       <Bloco titulo="Clientes"><LeadsImoviewCard onAuthError={onAuthError} onIr={onVerClientes} /></Bloco>
+      <Bloco titulo="Funil de vendas"><FunilImoviewCard onAuthError={onAuthError} /></Bloco>
       <Bloco titulo="Agenda"><Cartao><ItemIntegracao nome="Google Calendar" descricao="Sincronize as visitas e reuniões do Acessor com a agenda do Google." rotulo="Não conectado · EM BREVE" /></Cartao></Bloco>
       <Bloco titulo="Anúncios"><Cartao><ItemIntegracao nome="Meta Ads" descricao="Traga os leads dos anúncios do Facebook e do Instagram." /></Cartao></Bloco>
       <Bloco titulo="Publicação e documentos"><Cartao><ItemIntegracao nome="Portais imobiliários" descricao="Publique e atualize anúncios nos portais a partir do Acessor." /><ItemIntegracao nome="Assinatura eletrônica" descricao="Envie contratos para assinatura sem sair do negócio." /></Cartao></Bloco>

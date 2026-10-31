@@ -79,7 +79,7 @@ O que cada migração recente cria: `007` mídia das mensagens, `008` conversas 
 `012` configurações da imobiliária (dados, listas, localidades, tipos de atividade, roleta, lembretes),
 `013` leads do Imoview (cliente sem responsável, telefone de busca, status da importação),
 `014` funil automático (um negócio na etapa Lead para cada cliente, cadastro do Imoview em `dados_imoview`),
-`015` foto do corretor vinda do perfil do WhatsApp.
+`015` foto do corretor vinda do perfil do WhatsApp, `016` fases do Imoview nos negócios.
 
 ## O que depende do Gemini
 
@@ -111,3 +111,11 @@ onde parou. Depois, o `scheduler` busca os novos a cada 30 minutos e confere tud
 Depois de aplicar a 014, clique em **Reimportar tudo** (Configurações → Integrações → Clientes) uma vez
 para preencher o cadastro completo dos leads já importados. A foto dos corretores é buscada no WhatsApp
 quando há sessão conectada; sem foto, aparecem as iniciais.
+
+### Link dos imóveis e funil do Imoview
+
+- Preencha **Configurações → Dados da imobiliária → Site** (ex.: `https://www.quadrabrasileira.com.br`):
+  os imóveis passam a ter o link `{site}/imovel/{título}/{código}`, no cache e nas mensagens.
+- **Configurações → Integrações → Funil de vendas**: leia os atendimentos do Imoview, ligue cada fase
+  (1 a 8) a uma etapa do portal e ative o espelho. O sentido portal → Imoview fica como pendência até
+  haver o código de acesso de um usuário do Imoview.

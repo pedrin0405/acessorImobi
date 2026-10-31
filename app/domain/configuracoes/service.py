@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.domain.configuracoes import padroes
 from app.domain.configuracoes.padroes import ConfigErro
 from app.domain.corretor.foto import url_da_foto as foto_url
+from app.domain.imovel import link
 from app.shared.security import hash_password, mask_phone, verify_password
 
 log = structlog.get_logger()
@@ -196,6 +197,9 @@ class ConfiguracoesService:
             "cidade": (d.get("cidade") or "").strip()[:120], "uf": (d.get("uf") or "").upper(),
             "comissao_padrao": round(comissao, 2), "logo": logo,
         })
+        novo_site = link.normalizar_base(d.get("site"))
+        if novo_site != link.normalizar_base(atual.get("site")):
+            await link.aplicar_links(self._s, self._tid, novo_site)  # imóveis em cache passam a apontar para o site informado
         return await self.imobiliaria()
 
     # --- Equipe -----------------------------------------------------------------------

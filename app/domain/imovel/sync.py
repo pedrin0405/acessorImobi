@@ -21,6 +21,7 @@ from zoneinfo import ZoneInfo
 import structlog
 from sqlalchemy import text
 
+from app.domain.imovel.link import base_do_tenant, link_do_site
 from app.integration.imoview.client import (
     CircuitBreakerOpen,
     ImoviewAuthError,
@@ -123,7 +124,7 @@ def _https(url: Any) -> Optional[str]:
     return url if isinstance(url, str) and url.startswith("https://") else None
 
 
-def normalizar_imovel(im: Dict[str, Any], finalidade: str) -> Optional[Dict[str, Any]]:
+def normalizar_imovel(im: Dict[str, Any], finalidade: str, site_base: Optional[str] = None) -> Optional[Dict[str, Any]]:
     """Converte um imóvel do Imoview em colunas do cache + `dados_extras` (com hash do conteúdo)."""
     codigo = inteiro(im.get("codigo"))
     if not codigo:
@@ -175,7 +176,7 @@ def normalizar_imovel(im: Dict[str, Any], finalidade: str) -> Optional[Dict[str,
         "quartos": inteiro(im.get("numeroquartos")), "vagas": inteiro(im.get("numerovagas")),
         "banheiros": inteiro(im.get("numerobanhos")), "suites": inteiro(im.get("numerosuites")),
         "valor": numero_br(im.get("valor")), "valor_condominio": numero_br(im.get("valorcondominio")),
-        "situacao": im.get("situacao"), "link": im.get("urlpublica") or None, "titulo": titulo,
+        "situacao": im.get("situacao"), "link": im.get("urlpublica") or link_do_site(site_base, codigo, titulo, tipo, im.get("bairro")), "titulo": titulo,
         "destaque": str(im.get("destaque") or "").strip().lower() == "destaque",
         "busca": sem_acento(f"{codigo} {tipo} {im.get('bairro') or ''} {im.get('cidade') or ''} {titulo or ''}"),
     }
@@ -360,6 +361,7 @@ async def sincronizar_tenant(
             cliente = ImoviewClient(base_url=base, chave=creds["chave"], codigo_acesso=creds.get("codigo_acesso"))
 
         async with get_session(tenant_id) as session:
+            site_base = await base_do_tenant(session, tenant_id)
             linhas = (await session.execute(
                 text("SELECT codigo_imoview, ativo, dados_extras->>'hash' AS hash FROM imoveis_cache WHERE tenant_id = :tid"),
                 {"tid": str(tenant_id)},
@@ -386,7 +388,7 @@ async def sincronizar_tenant(
 
                 novos_ou_alterados, iguais = [], []
                 for bruto in lista:
-                    n = normalizar_imovel(bruto, nome)
+                    n = normalizar_imovel(bruto, nome, site_base)
                     if not n:
                         continue
                     vistos.add(n["codigo"])

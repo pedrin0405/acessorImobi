@@ -587,6 +587,7 @@ class CrmService:
                  "id": str(negocio_id), "tid": str(tenant_id)},
             )
             await self._evento(tenant_id, str(negocio_id), status, atual["etapa_nome"], motivo_perda, autor)
+            await self._pendencia_imoview(tenant_id, negocio_id, autor, status=status, motivo=motivo_perda)
             return {**_linha(row.first()), "etapa_nome": atual["etapa_nome"]}
 
         if status == "aberto":
@@ -612,7 +613,16 @@ class CrmService:
         )
         if mudou:
             await self._evento(tenant_id, str(negocio_id), "etapa", atual["etapa_nome"], etapa_row["nome"], autor)
+            await self._pendencia_imoview(tenant_id, negocio_id, autor, etapa_id=str(etapa_row["id"]))
         return {**_linha(row.first()), "etapa_nome": etapa_row["nome"]}
+
+    async def _pendencia_imoview(self, tenant_id, negocio_id, autor, **mudanca) -> None:
+        """Mudança feita no portal/agente em negócio ligado ao Imoview entra na fila de envio (o sync não passa por aqui)."""
+        if autor == "imoview":
+            return
+        from app.domain.crm.atendimentos_imoview import registrar_pendencia
+
+        await registrar_pendencia(self._session, tenant_id, negocio_id, **mudanca)
 
     async def _evento(self, tenant_id, negocio_id, tipo, de, para, autor) -> None:
         await self._session.execute(
@@ -622,7 +632,7 @@ class CrmService:
             """),
             {"tid": str(tenant_id), "nid": str(negocio_id), "tipo": tipo,
              "de": (de or None) and str(de)[:80], "para": (para or None) and str(para)[:80],
-             "autor": autor if autor in ("agent", "portal", "scheduler") else "agent"},
+             "autor": autor if autor in ("agent", "portal", "scheduler", "imoview") else "agent"},
         )
 
     _SELECT_NEGOCIO = """

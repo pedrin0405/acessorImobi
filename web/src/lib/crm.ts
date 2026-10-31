@@ -29,6 +29,8 @@ export interface Negocio {
   lead_origem?: string;
   lead_temperatura?: "quente" | "morno" | "frio";
   automatico?: boolean;
+  imoview_fase?: number | null;
+  imoview_situacao?: "em_atendimento" | "negocio_realizado" | "descartado" | null;
   corretor_nome: string | null;
   dias_na_etapa: number;
   travado: boolean;

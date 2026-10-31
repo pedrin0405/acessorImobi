@@ -266,6 +266,7 @@ export default function Negociacoes({ onAuthError }: { onAuthError: (e: unknown)
                           </span>
                           <span className="flex items-center gap-1 shrink-0" style={{ color: nv.travado ? "var(--warn)" : undefined }}><Clock className="w-3 h-3" aria-hidden />{nv.dias_na_etapa}d</span>
                         </div>
+                        {nv.imoview_fase ? <div><Selo tom="info">Imoview · fase {nv.imoview_fase}</Selo></div> : null}
                         {status === "aberto" && (
                           <div className="flex items-center gap-1 pt-0.5">
                             <Seletor aria-label={`Mover negócio de ${nv.lead_nome}`} value={nv.etapa_id} onChange={(e) => { const d = colunas.find((x) => x.etapa_id === e.target.value); if (d) moverPara(nv, d); }} className="!py-1 !text-[11px] !rounded-lg flex-1 min-w-0">

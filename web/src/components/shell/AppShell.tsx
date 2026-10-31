@@ -182,10 +182,10 @@ export default function AppShell({ marca, subtitulo, grupos, rodape = [], ativo,
   );
 
   return (
-    <div className={`app-tema ${tema === "claro" ? "app-claro" : ""} min-h-screen flex`}>
+    <div className={`app-tema ${tema === "claro" ? "app-claro" : ""} relative h-dvh overflow-hidden flex`} style={{ background: "var(--bg)" }}>
       {/* Menu lateral (desktop) */}
       <aside
-        className={`hidden lg:block sticky top-0 h-screen shrink-0 transition-[width] duration-200 ${recolhido ? "w-[68px]" : "w-[236px]"}`}
+        className={`hidden lg:block h-full shrink-0 transition-[width] duration-200 ${recolhido ? "w-[68px]" : "w-[236px]"}`}
         style={{ background: "var(--sidebar)", borderRight: "1px solid var(--line)" }}
       >
         <Lateral compacto={recolhido} />
@@ -201,7 +201,7 @@ export default function AppShell({ marca, subtitulo, grupos, rodape = [], ativo,
         </div>
       )}
 
-      <div className="flex-1 min-w-0 flex flex-col">
+      <div className="relative flex-1 min-w-0 h-full overflow-y-auto overflow-x-hidden flex flex-col" style={{ background: "var(--bg)" }}>
         {/* Barra superior */}
         <header className="sticky top-0 z-30 h-16 flex items-center gap-3 px-4 lg:px-6" style={{ background: "var(--bg)", borderBottom: "1px solid var(--line)" }}>
           <button onClick={() => setGaveta(true)} className="lg:hidden p-2 rounded-xl" style={{ color: "var(--text-3)" }} aria-label="Abrir menu">
@@ -266,7 +266,7 @@ export default function AppShell({ marca, subtitulo, grupos, rodape = [], ativo,
         </header>
 
         {larguraTotal ? (
-          <main className="flex-1 min-h-0 flex flex-col">{children}</main>
+          <main className="flex-1 min-h-0 flex flex-col overflow-hidden">{children}</main>
         ) : (
           <main className="flex-1 px-4 py-6 lg:px-8 lg:py-8">
             <div className="max-w-6xl mx-auto space-y-6">{children}</div>
