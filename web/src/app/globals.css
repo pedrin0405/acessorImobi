@@ -280,3 +280,39 @@ body {
   .marca-animada .m-arco, .marca-animada .m-ponto, .marca-animada .m-forte, .marca-animada .m-leve,
   .marca-carregando .m-arco, .marca-carregando .m-ponto { animation: none !important; }
 }
+
+/* =============================================================================
+   Feixe de luz no campo "Pergunte ao Acessor": um arco luminoso percorre a borda sem parar (devagar em repouso,
+   mais vivo com o campo em foco e rápido enquanto a IA responde), com um halo suave por fora. Só usa o verde de
+   ação do tema. Em navegadores sem @property o arco fica parado; com movimento reduzido também.
+   ============================================================================= */
+@property --beam-angulo { syntax: "<angle>"; inherits: false; initial-value: 0deg; }
+@keyframes assist-beam-gira { to { --beam-angulo: 360deg; } }
+
+.assist-beam { isolation: isolate; --beam-cor: var(--accent); --beam-tempo: 7s; --beam-forca: .85; --beam-halo: .28; }
+.assist-beam:focus-within { --beam-tempo: 3.6s; --beam-forca: 1; --beam-halo: .4; }
+.assist-beam[data-pensando="sim"] { --beam-tempo: 1.7s; --beam-forca: 1; --beam-halo: .5; }
+.app-claro .assist-beam { --beam-halo: .22; }
+.app-claro .assist-beam:focus-within { --beam-halo: .3; }
+
+.assist-beam::before,
+.assist-beam::after {
+  content: "";
+  position: absolute;
+  border-radius: inherit;
+  pointer-events: none;
+  background: conic-gradient(from var(--beam-angulo), transparent 0deg, transparent 215deg,
+    color-mix(in srgb, var(--beam-cor) 35%, transparent) 285deg, var(--beam-cor) 335deg, transparent 360deg);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
+  animation: assist-beam-gira var(--beam-tempo) linear infinite;
+  transition: opacity .3s ease;
+}
+/* o fio de luz sobre a própria borda */
+.assist-beam::before { inset: -1px; padding: 1.5px; opacity: var(--beam-forca); }
+/* o halo por fora, desfocado */
+.assist-beam::after { inset: -9px; padding: 9px; filter: blur(9px); opacity: var(--beam-halo); z-index: -1; }
+@media (prefers-reduced-motion: reduce) {
+  .assist-beam::before, .assist-beam::after { animation: none; }
+}

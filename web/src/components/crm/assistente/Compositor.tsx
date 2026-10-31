@@ -219,7 +219,9 @@ const Compositor = forwardRef<CompositorRef, Props>(function Compositor(
         onDragOver={(e) => { e.preventDefault(); setArrastando(true); }}
         onDragLeave={() => setArrastando(false)}
         onDrop={(e) => { e.preventDefault(); setArrastando(false); adicionar(Array.from(e.dataTransfer.files)); }}
-        className="relative rounded-3xl border transition-[border-color,box-shadow] duration-200 focus-within:border-[var(--accent)] focus-within:shadow-[0_0_0_4px_color-mix(in_srgb,var(--accent)_13%,transparent)]"
+        data-beam="on"
+        data-pensando={ocupado ? "sim" : "nao"}
+        className="assist-beam relative rounded-3xl border transition-[border-color,box-shadow] duration-200 focus-within:border-[var(--accent)] focus-within:shadow-[0_0_0_4px_color-mix(in_srgb,var(--accent)_13%,transparent)]"
         style={{ background: "var(--card)", borderColor: arrastando ? "var(--accent)" : "var(--line-2)" }}
       >
         {anexos.length > 0 && (
