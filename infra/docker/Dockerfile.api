@@ -20,4 +20,6 @@ ENV PYTHONUNBUFFERED=1 \
 
 EXPOSE 8000
 
-CMD ["uvicorn", "app.api.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "4"]
+# Atualiza o banco antes de subir (uma vez por deploy, só no serviço da API). Se a migração falhar o serviço sobe
+# mesmo assim e o erro fica no log, em vez de derrubar o portal.
+CMD ["sh", "-c", "alembic upgrade head || echo 'ATENÇÃO: a migração do banco falhou; veja o erro acima'; exec uvicorn app.api.main:app --host 0.0.0.0 --port 8000 --workers 4"]

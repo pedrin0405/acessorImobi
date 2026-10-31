@@ -70,7 +70,7 @@ Sempre nesta ordem, para o código novo não pedir coluna que ainda não existe:
 1. No EasyPanel, **Implantar** (reconstrói `api`, `worker`, `scheduler` e `web`).
 2. Logo depois, no terminal da VPS, aplique as migrações (todas são idempotentes):
    ```bash
-   docker exec backend_quadra_acessor-imobi-api-1 alembic upgrade head
+   docker exec backend_quadra_acessor-imobi-api-1 alembic upgrade head   # (a API já faz isso sozinha ao subir; o comando serve para conferir ou repetir)
    ```
 3. Recarregue o portal com Ctrl+Shift+R.
 

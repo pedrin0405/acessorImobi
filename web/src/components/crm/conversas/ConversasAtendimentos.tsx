@@ -7,9 +7,11 @@ import { atendimentoParaConversa, type AtendimentoItem } from "./tipos";
 
 /** "Conversas" do corretor: os clientes que falam com ele no WhatsApp pessoal, na mesma tela das Conversas da gestão. */
 export default function ConversasAtendimentos({
-  itens, carregando, todos, onTodos, onRecarregar, meuId, onAuthError, onIr, onAbrirCliente,
+  itens, erro, carregando, todos, onTodos, onRecarregar, meuId, onAuthError, onIr, onAbrirCliente,
 }: {
   itens: AtendimentoItem[];
+  /** A busca da lista falhou: a tela diz isso em vez de fingir que não há conversas. */
+  erro?: string | null;
   carregando: boolean;
   todos: boolean;
   onTodos: (v: boolean) => void;
@@ -42,7 +44,9 @@ export default function ConversasAtendimentos({
   };
 
   const vazio = useMemo(() => {
-    if (itens.length > 0 || !diag) return undefined;
+    if (itens.length > 0) return undefined;
+    if (erro) return { titulo: "Não foi possível carregar seus atendimentos", detalhe: erro, acao: { rotulo: "Tentar de novo", onClick: onRecarregar } };
+    if (!diag) return undefined;
     if (diag.whatsapp !== "connected") return { titulo: "WhatsApp não conectado", detalhe: "Conecte seu número em Configurações para o Acessor acompanhar suas conversas com clientes.", acao: { rotulo: "Ir para Configurações", onClick: () => onIr("configuracoes") } };
     if (!diag.assistente_ativo) return {
       titulo: "O assistente está desligado",
@@ -57,7 +61,7 @@ export default function ConversasAtendimentos({
       detalhe: `Seu WhatsApp está conectado. O Acessor lê as conversas individuais dos últimos ${diag.dias_lidos} dias (grupos ficam de fora) e as novas assim que chegam.`,
       acao: { rotulo: "Buscar conversas agora", ocupado, onClick: () => executar(() => fetchApi("/corretor/atendimentos/sincronizar", { method: "POST" })) },
     };
-  }, [itens.length, diag, ocupado, aviso, onIr]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [itens.length, erro, diag, ocupado, aviso, onIr]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // A lista se atualiza sozinha enquanto a tela está aberta e ao voltar o foco para a aba.
   useEffect(() => {

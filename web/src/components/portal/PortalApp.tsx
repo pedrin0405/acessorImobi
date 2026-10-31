@@ -99,6 +99,7 @@ export default function PortalApp({ papel }: { papel: Papel }) {
 
   // Atendimentos (corretor): conversas dele com os clientes no WhatsApp pessoal
   const [atendimentos, setAtendimentos] = useState<AtendimentoItem[]>([]);
+  const [erroAtendimentos, setErroAtendimentos] = useState<string | null>(null);
   const [loadingAtendimentos, setLoadingAtendimentos] = useState(false);
   const [atendimentosTodos, setAtendimentosTodos] = useState(false);
 
@@ -185,9 +186,10 @@ export default function PortalApp({ papel }: { papel: Papel }) {
     setLoadingAtendimentos(true);
     try {
       const res = await fetchApi(`/corretor/atendimentos?dias=90&todos=${todos}`);
-      if (res.ok) setAtendimentos(await res.json());
+      if (res.ok) { setAtendimentos(await res.json()); setErroAtendimentos(null); }
+      else setErroAtendimentos(`O servidor respondeu ${res.status} ao buscar seus atendimentos${res.status >= 500 ? " (provável atualização do banco pendente)" : ""}.`);
     } catch (e) {
-      tratarAuthError(e);
+      if (!tratarAuthError(e)) setErroAtendimentos("Sem conexão com o servidor.");
     } finally {
       setLoadingAtendimentos(false);
     }
@@ -731,6 +733,7 @@ export default function PortalApp({ papel }: { papel: Papel }) {
         {tab === "conversas" && ehCorretor && (
           <ConversasAtendimentos
             itens={atendimentos}
+            erro={erroAtendimentos}
             carregando={loadingAtendimentos}
             todos={atendimentosTodos}
             onTodos={setAtendimentosTodos}
