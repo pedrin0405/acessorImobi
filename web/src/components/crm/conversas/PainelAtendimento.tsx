@@ -6,7 +6,7 @@ import { fetchApi } from "@/lib/api";
 import { brl, Perfil, resumoPerfil } from "@/lib/crm";
 import { Avatar } from "./ListaConversas";
 import { corTemperatura, dataHora, Linha, Secao, vazio } from "./PainelDetalhes";
-import type { AtendimentoDetalhe, AtendimentoItem } from "./tipos";
+import type { AtendimentoDetalhe, AtendimentoItem, TipoContato } from "./tipos";
 
 export type AbaAtendimento = "info" | "cliente" | "analise";
 
@@ -29,10 +29,34 @@ const ROTULO_CAMPO: Record<string, string> = {
 };
 const ORDEM = ["resumo", "proximo_passo", "sugestao_resposta", "objecoes", "alertas", "etapa_sugerida", "perfil", "temperatura"];
 
+const TIPOS: { id: Exclude<TipoContato, null> | "auto"; rotulo: string }[] = [
+  { id: "imobiliario", rotulo: "Imobiliário" }, { id: "pessoal", rotulo: "Pessoal" }, { id: "outro", rotulo: "Outro" }, { id: "auto", rotulo: "Automático" },
+];
+
+/** Controle segmentado do tipo de contato: o corretor corrige a classificação da IA (ou volta ao automático). */
+function SeletorTipo({ item, salvando, onTrocar, compacto }: { item: AtendimentoItem; salvando: boolean; onTrocar: (t: TipoContato) => void; compacto?: boolean }) {
+  const atual = item.tipo_manual && item.tipo_contato ? item.tipo_contato : "auto";
+  return (
+    <div role="radiogroup" aria-label="Tipo de contato" className={`inline-flex flex-wrap ${compacto ? "gap-1" : "gap-1.5"}`}>
+      {TIPOS.map((t) => {
+        const ativo = atual === t.id;
+        return (
+          <button
+            key={t.id} type="button" role="radio" aria-checked={ativo} disabled={salvando}
+            onClick={() => !ativo && onTrocar(t.id === "auto" ? null : t.id)}
+            className={`rounded-full font-medium transition-colors disabled:opacity-60 ${compacto ? "px-2.5 py-1 text-[11px]" : "px-3 py-1.5 text-xs"}`}
+            style={{ background: ativo ? "var(--chip)" : "var(--card-2)", color: ativo ? "var(--chip-text)" : "var(--text-2)", border: "1px solid var(--line)" }}
+          >{t.rotulo}</button>
+        );
+      })}
+    </div>
+  );
+}
+
 const texto = (v: unknown): string => (v == null ? "" : typeof v === "string" ? v : Array.isArray(v) ? v.map(texto).filter(Boolean).join("; ") : typeof v === "object" ? Object.entries(v as Record<string, unknown>).map(([k, x]) => `${k}: ${texto(x)}`).join(" · ") : String(v));
 
 export default function PainelAtendimento({
-  item, detalhe, aba, onAba, onFechar, onIr, onAbrirCliente, onReanalisar, reanalisando, onAuthError,
+  item, detalhe, aba, onAba, onFechar, onIr, onAbrirCliente, onReanalisar, reanalisando, onAuthError, erroAnalise, onLigarAssistente, onAlterou,
 }: {
   item: AtendimentoItem;
   detalhe: AtendimentoDetalhe | null;
@@ -44,7 +68,16 @@ export default function PainelAtendimento({
   onReanalisar: () => void;
   reanalisando: boolean;
   onAuthError: (e: unknown) => boolean;
+  /** Motivo da última análise que falhou (assistente desligado, IA indisponível…). */
+  erroAnalise?: string | null;
+  onLigarAssistente?: () => void;
+  /** O atendimento mudou (tipo, foto ou nome): a tela atualiza o item na hora e recarrega a lista. */
+  onAlterou?: (patch: Partial<AtendimentoItem>) => void;
 }) {
+  const [salvandoTipo, setSalvandoTipo] = useState(false);
+  const [avisoTipo, setAvisoTipo] = useState<string | null>(null);
+  const [buscandoFoto, setBuscandoFoto] = useState(false);
+  const [avisoFoto, setAvisoFoto] = useState<string | null>(null);
   const [ficha, setFicha] = useState<FichaCliente | null>(null);
   const [erroFicha, setErroFicha] = useState(false);
   const [copiado, setCopiado] = useState<string | null>(null);
@@ -65,6 +98,34 @@ export default function PainelAtendimento({
 
   useEffect(() => { setFicha(null); setErroFicha(false); }, [leadId]);
   useEffect(() => { if (aba === "cliente" || aba === "info") carregarFicha(); }, [aba, carregarFicha]);
+
+  const trocarTipo = async (tipo: TipoContato) => {
+    setSalvandoTipo(true); setAvisoTipo(null);
+    try {
+      const res = await fetchApi(`/corretor/atendimentos/${item.id}/tipo`, { method: "PATCH", body: JSON.stringify({ tipo }) });
+      const dados = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(dados?.detail || "Não foi possível salvar o tipo agora.");
+      onAlterou?.({ tipo_contato: dados.tipo_contato ?? null, tipo_manual: !!dados.tipo_manual, imobiliario: dados.imobiliario ?? null });
+      setAvisoTipo(tipo === "pessoal" || tipo === "outro"
+        ? "Conversas pessoais saem da lista e não são analisadas; veja em “Incluir conversas não imobiliárias”."
+        : tipo === null ? "Voltou ao automático: o Acessor classifica na próxima análise." : "Tipo salvo. O Acessor passa a tratar esta conversa como imobiliária.");
+    } catch (e) {
+      if (!onAuthError(e)) setAvisoTipo(e instanceof Error ? e.message : "Não foi possível salvar o tipo agora.");
+    } finally { setSalvandoTipo(false); }
+  };
+
+  const atualizarFoto = async () => {
+    setBuscandoFoto(true); setAvisoFoto(null);
+    try {
+      const res = await fetchApi(`/corretor/atendimentos/${item.id}/foto/atualizar`, { method: "POST" });
+      const dados = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(dados?.detail || "Não foi possível buscar agora.");
+      setAvisoFoto(dados.mensagem || null);
+      onAlterou?.({ foto_url: dados.foto_url ?? item.foto_url ?? null, nome: dados.nome ?? item.nome });
+    } catch (e) {
+      if (!onAuthError(e)) setAvisoFoto(e instanceof Error ? e.message : "Não foi possível buscar agora.");
+    } finally { setBuscandoFoto(false); }
+  };
 
   const teclarAba = (e: React.KeyboardEvent, i: number) => {
     if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
@@ -105,13 +166,20 @@ export default function PainelAtendimento({
 
       <div className="flex-1 overflow-y-auto px-5 pb-8">
         <div className="pt-6 flex flex-col items-center text-center">
-          <Avatar nome={item.nome} tamanho={96} />
+          <Avatar nome={item.nome} tamanho={96} fotoUrl={detalhe?.foto_url ?? item.foto_url} />
           <h3 className="mt-3 text-lg font-semibold" style={{ color: "var(--text)" }}>{item.nome || item.telefone_cliente}</h3>
+          <button type="button" onClick={atualizarFoto} disabled={buscandoFoto} className="mt-1 inline-flex items-center gap-1.5 text-[11.5px] hover:underline disabled:opacity-60" style={{ color: "var(--text-3)" }}>
+            {buscandoFoto ? <Loader2 className="w-3 h-3 animate-spin" aria-hidden /> : <RefreshCw className="w-3 h-3" aria-hidden />} Atualizar foto e nome do WhatsApp
+          </button>
+          {avisoFoto && <p role="status" className="mt-1 text-[11.5px] max-w-[16rem]" style={{ color: "var(--text-3)" }}>{avisoFoto}</p>}
           <div className="mt-1 flex items-center gap-2 text-xs">
             <span className="px-2 py-0.5 rounded-md" style={{ background: "var(--card-2)", color: "var(--text-3)" }}>Cliente</span>
             {temperatura && <span style={{ color: corTemperatura(temperatura) }}>{temperatura}</span>}
             {(detalhe?.aguardando_corretor ?? item.aguardando_corretor) && <span style={{ color: "var(--warn)" }}>Aguardando você</span>}
           </div>
+
+          <div className="mt-3"><SeletorTipo item={item} salvando={salvandoTipo} onTrocar={trocarTipo} compacto /></div>
+          {avisoTipo && <p role="status" className="mt-1.5 text-[11.5px] max-w-[18rem]" style={{ color: "var(--text-3)" }}>{avisoTipo}</p>}
 
           <ul className="mt-4 flex items-start justify-center gap-4">
             {atalhos.map(({ rotulo, icone: Icone, acao, desligado }) => (
@@ -132,6 +200,18 @@ export default function PainelAtendimento({
             </button>
           )}
         </div>
+
+        {erroAnalise && (
+          <div role="alert" className="assist-fade mt-6 rounded-2xl p-3.5 text-[13px]" style={{ background: "color-mix(in srgb, var(--danger) 10%, var(--card))", border: "1px solid color-mix(in srgb, var(--danger) 35%, transparent)", color: "var(--text)" }}>
+            <p>{erroAnalise}</p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {/desligado/i.test(erroAnalise) && onLigarAssistente && (
+                <button type="button" onClick={onLigarAssistente} disabled={reanalisando} className="px-3 py-1.5 rounded-full text-xs font-medium disabled:opacity-60" style={{ background: "var(--chip)", color: "var(--chip-text)" }}>Ligar o assistente</button>
+              )}
+              <button type="button" onClick={onReanalisar} disabled={reanalisando} className="px-3 py-1.5 rounded-full text-xs font-medium hover:bg-[var(--hover-solid)] disabled:opacity-60" style={{ border: "1px solid var(--line-2)", color: "var(--text)" }}>Tentar de novo</button>
+            </div>
+          </div>
+        )}
 
         <section className="mt-6 rounded-2xl p-4" style={{ background: "var(--card)", border: "1px solid var(--line)" }}>
           <h4 className="text-sm font-semibold" style={{ color: "var(--text)" }}>Atendimento</h4>
@@ -185,9 +265,12 @@ export default function PainelAtendimento({
           {aba === "info" && (
             <>
               <Secao titulo="Informações gerais">
-                <Linha rotulo="Nome" valor={item.nome || "—"} />
+                <Linha rotulo="Nome" valor={item.nome ? <span>{item.nome} <span className="text-[11px]" style={{ color: "var(--text-4)" }}>· {leadId ? "do CRM" : "do WhatsApp"}</span></span> : "—"} />
                 <Linha rotulo="Telefone" valor={item.telefone_cliente} />
-                <Linha rotulo="Tipo" valor={item.imobiliario === false ? "Não imobiliária" : "Imobiliária"} />
+                <Linha rotulo="Tipo de contato" valor={<span className="inline-flex flex-col items-end gap-1.5">
+                  <SeletorTipo item={item} salvando={salvandoTipo} onTrocar={trocarTipo} compacto />
+                  {!item.tipo_manual && item.imobiliario != null && <span className="text-[11px]" style={{ color: "var(--text-4)" }}>A IA classificou como {item.imobiliario ? "imobiliário" : "pessoal / não imobiliário"}</span>}
+                </span>} />
                 <Linha rotulo="No CRM" valor={leadId ? "Sim" : "Ainda não"} />
                 <Linha rotulo="Última mensagem" valor={dataHora(detalhe?.ultima_mensagem_em ?? item.ultima_mensagem_em)} />
                 <Linha rotulo="Última do cliente" valor={dataHora(item.ultima_do_cliente_em)} />

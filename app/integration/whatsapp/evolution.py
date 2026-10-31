@@ -277,6 +277,24 @@ class EvolutionClient:
         link = dados.get("profilePictureUrl") or dados.get("profilePicUrl") or dados.get("picture")
         return link if isinstance(link, str) and link.startswith("http") else None
 
+    async def find_contact(self, instance_id: str, number: str) -> Dict[str, Any]:
+        """
+        POST /chat/findContacts/{instance}
+        Nome salvo/divulgado do contato (pushName) quando a Evolution o conhece; {} se não achar. Nunca levanta erro.
+        """
+        digitos = "".join(ch for ch in number if ch.isdigit())
+        url = f"{self.base_url}/chat/findContacts/{instance_id}"
+        try:
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                resp = await client.post(url, headers=self._headers(), json={"where": {"remoteJid": f"{digitos}@s.whatsapp.net"}})
+            if resp.status_code not in (200, 201):
+                return {}
+            dados = resp.json()
+        except (httpx.HTTPError, ValueError):
+            return {}
+        lista = dados if isinstance(dados, list) else (dados.get("contacts") if isinstance(dados, dict) else None) or []
+        return lista[0] if lista and isinstance(lista[0], dict) else {}
+
     async def get_instance_status(self, instance_id: str) -> Dict[str, Any]:
         """
         GET /instance/connectionState/{instance}

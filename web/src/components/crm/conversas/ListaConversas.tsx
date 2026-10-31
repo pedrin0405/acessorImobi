@@ -1,5 +1,6 @@
 "use client";
 
+import AvatarCorretor from "@/components/corretor/AvatarCorretor";
 import AvatarDoCorretor from "@/components/corretor/AvatarDoCorretor";
 import React, { useMemo, useState } from "react";
 import { Image as ImagemIcone, MessageSquare, Mic, RefreshCw, Search } from "lucide-react";
@@ -48,7 +49,15 @@ export function previaDaConversa(c: ConversaResumo): { tipo: "foto" | "audio" | 
   return { tipo: null, texto: `${prefixo}${c.ultima_mensagem.replace(/\*/g, "")}` };
 }
 
-export function Avatar({ nome, tamanho = 44, id }: { nome: string | null; tamanho?: number; id?: string | null }) {
+/** Selo do tipo de contato nos atendimentos que não são de imobiliária (aparecem com "Incluir conversas não imobiliárias"). */
+export function rotuloTipo(c: Pick<ConversaResumo, "tipo_contato" | "imobiliario">): string | null {
+  if (c.tipo_contato === "pessoal") return "Pessoal";
+  if (c.tipo_contato === "outro") return "Outro";
+  return c.imobiliario === false ? "Não imobiliário" : null;
+}
+
+export function Avatar({ nome, tamanho = 44, id, fotoUrl }: { nome: string | null; tamanho?: number; id?: string | null; fotoUrl?: string | null }) {
+  if (fotoUrl) return <AvatarCorretor nome={nome} fotoUrl={fotoUrl} tamanho={tamanho} />;  // foto do contato (WhatsApp), com iniciais de reserva
   if (id) return <AvatarDoCorretor id={id} nome={nome} tamanho={tamanho} />;
   return (
     <span
@@ -200,10 +209,13 @@ export default function ListaConversas({
                     className="w-full flex items-start gap-3 px-3 py-3 rounded-2xl text-left transition-colors hover:bg-[var(--card-2)]"
                     style={ativa ? { background: "var(--hover-solid)" } : undefined}
                   >
-                    <Avatar nome={c.corretor_nome} id={semAvatarDoCorretor ? null : c.corretor_id} />
+                    <Avatar nome={c.corretor_nome} id={semAvatarDoCorretor ? null : c.corretor_id} fotoUrl={c.foto_url} />
                     <span className="min-w-0 flex-1">
                       <span className="flex items-baseline justify-between gap-2">
-                        <span className="truncate text-[15px] font-medium" style={{ color: "var(--text)" }}>{c.corretor_nome || c.telefone_mascarado}</span>
+                        <span className="truncate text-[15px] font-medium" style={{ color: "var(--text)" }}>
+                          {c.corretor_nome || c.telefone_mascarado}
+                          {rotuloTipo(c) && <span className="ml-2 align-middle px-1.5 py-px rounded-md text-[10.5px] font-medium" style={{ background: "var(--card-2)", color: "var(--text-3)" }}>{rotuloTipo(c)}</span>}
+                        </span>
                         <span className="shrink-0 text-xs tabular-nums" style={{ color: naoLida ? "var(--accent-text)" : "var(--text-4)" }}>{rotuloLista(c.ultima_em)}</span>
                       </span>
                       <span className="mt-0.5 flex items-start justify-between gap-2">

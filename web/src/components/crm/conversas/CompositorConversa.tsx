@@ -19,6 +19,11 @@ export default function CompositorConversa({
   erro,
   onAcao,
   somenteAcoes = false,
+  semNota = false,
+  acoes,
+  textos,
+  topo,
+  idCampo,
 }: {
   modo: ModoCompositor;
   onModo: (m: ModoCompositor) => void;
@@ -33,12 +38,22 @@ export default function CompositorConversa({
   onAcao?: (a: AcaoRapidaCompositor) => void;
   /** Portal do corretor: sem texto livre nem notas; só as ações rápidas ("enviar para mim"). */
   somenteAcoes?: boolean;
+  /** Atendimentos: escreve ao cliente pelo WhatsApp do corretor; não existe nota interna. */
+  semNota?: boolean;
+  /** Ações que o menu oferece (padrão: imóveis, book e ficha). */
+  acoes?: AcaoRapidaCompositor[];
+  /** Troca os textos de quem recebe a mensagem. */
+  textos?: { placeholder: string; rotulo: string; dica: string; bloqueado: string };
+  /** Conteúdo acima do campo (ex.: sugestão de resposta). */
+  topo?: React.ReactNode;
+  /** id do textarea, para devolver o foco ao campo depois de preenchê-lo de fora. */
+  idCampo?: string;
 }) {
   const area = useRef<HTMLTextAreaElement | null>(null);
   const caixa = useRef<HTMLDivElement | null>(null);
   const [emojis, setEmojis] = useState(false);
   const [menu, setMenu] = useState(false);
-  const nota = modo === "nota";
+  const nota = modo === "nota" && !semNota;
   const bloqueado = !nota && semWhatsapp;
   const comAcoes = !!onAcao && !nota;
   const abrirMenu = menu && comAcoes;
@@ -104,10 +119,11 @@ export default function CompositorConversa({
       {erro && <p role="alert" className="assist-fade mb-2 px-2 text-xs" style={{ color: "var(--danger)" }}>{erro}</p>}
       {bloqueado && (
         <p role="status" className="mb-2 px-2 text-xs" style={{ color: "var(--warn)" }}>
-          O WhatsApp do agente está desconectado, então a mensagem não seria entregue. Você ainda pode salvar uma nota interna.
+          {textos?.bloqueado ?? "O WhatsApp do agente está desconectado, então a mensagem não seria entregue. Você ainda pode salvar uma nota interna."}
         </p>
       )}
 
+      {topo}
       <div
         className="flex items-end gap-1 rounded-3xl border pl-4 pr-2 py-1.5 transition-colors focus-within:border-[var(--accent)]"
         style={{
@@ -130,6 +146,7 @@ export default function CompositorConversa({
         )}
         <textarea
           ref={area}
+          id={idCampo}
           rows={1}
           value={texto}
           onChange={(e) => { onTexto(e.target.value); if (comAcoes && e.target.value === "/") setMenu(true); else if (menu && e.target.value !== "/") setMenu(false); }}
@@ -139,8 +156,8 @@ export default function CompositorConversa({
               if (pode) onEnviar();
             }
           }}
-          placeholder={nota ? "Anotação visível só para a equipe…" : "Escreva uma mensagem ao corretor…"}
-          aria-label={nota ? "Nota interna" : "Mensagem ao corretor"}
+          placeholder={nota ? "Anotação visível só para a equipe…" : textos?.placeholder ?? "Escreva uma mensagem ao corretor…"}
+          aria-label={nota ? "Nota interna" : textos?.rotulo ?? "Mensagem ao corretor"}
           className="flex-1 resize-none py-2.5 text-[15px] leading-snug outline-none"
           // O tema pinta todo textarea com --input; aqui vale o fundo da própria pílula.
           style={{ background: "transparent", border: 0, color: "var(--text)" }}
@@ -169,7 +186,7 @@ export default function CompositorConversa({
 
       {abrirMenu && (
         <div role="menu" aria-label="Ações rápidas" className="assist-pop absolute left-6 bottom-full mb-1 z-20 w-72 p-1.5 rounded-2xl shadow-2xl" style={{ background: "var(--card)", border: "1px solid var(--line-2)" }}>
-          {([["imoveis", "Enviar imóveis", "Escolha da carteira, com foto e valor", Building2], ["book", "Enviar book em PDF", "Seleção de imóveis em PDF, com fotos e dados", BookOpen], ["lead", "Enviar cliente", "Ficha do lead: contato, busca e responsável", UserRound]] as const).map(([id, titulo, descricao, Icone]) => (
+          {([["imoveis", "Enviar imóveis", "Escolha da carteira, com foto e valor", Building2], ["book", "Enviar book em PDF", "Seleção de imóveis em PDF, com fotos e dados", BookOpen], ["lead", "Enviar cliente", "Ficha do lead: contato, busca e responsável", UserRound]] as const).filter(([id]) => !acoes || acoes.includes(id)).map(([id, titulo, descricao, Icone]) => (
             <button key={id} type="button" role="menuitem" onClick={() => { setMenu(false); if (texto === "/") onTexto(""); onAcao!(id); }} className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left hover:bg-[var(--hover-solid)]">
               <span className="w-9 h-9 rounded-full flex items-center justify-center shrink-0" style={{ background: "var(--card-2)", color: "var(--accent-text)" }}><Icone className="w-4 h-4" aria-hidden /></span>
               <span className="min-w-0"><span className="block text-sm font-medium" style={{ color: "var(--text)" }}>{titulo}</span><span className="block text-xs" style={{ color: "var(--text-3)" }}>{descricao}</span></span>
@@ -189,16 +206,16 @@ export default function CompositorConversa({
       )}
 
       <div className="mt-2 flex flex-wrap items-center justify-between gap-2 px-1">
-        <div role="radiogroup" aria-label="Tipo de envio" className="inline-flex p-0.5 rounded-full" style={{ background: "var(--card-2)", border: "1px solid var(--line)" }}>
+        {!semNota && <div role="radiogroup" aria-label="Tipo de envio" className="inline-flex p-0.5 rounded-full" style={{ background: "var(--card-2)", border: "1px solid var(--line)" }}>
           <button type="button" role="radio" aria-checked={!nota} onClick={() => onModo("mensagem")} className="px-3.5 py-1 rounded-full text-[13px] font-medium transition-colors" style={segmento(!nota)}>
             Mensagem
           </button>
           <button type="button" role="radio" aria-checked={nota} onClick={() => onModo("nota")} className="px-3.5 py-1 rounded-full text-[13px] font-medium transition-colors" style={segmento(nota)}>
             Nota interna
           </button>
-        </div>
+        </div>}
         <p className="text-[11px]" style={{ color: "var(--text-4)" }}>
-          {nota ? "A nota não é enviada ao corretor" : "Enter envia pelo número do agente"} · Shift ↵ nova linha{comAcoes ? " · / ações rápidas" : ""}
+          {nota ? "A nota não é enviada ao corretor" : textos?.dica ?? "Enter envia pelo número do agente"} · Shift ↵ nova linha{comAcoes ? " · / ações rápidas" : ""}
         </p>
       </div>
     </div>

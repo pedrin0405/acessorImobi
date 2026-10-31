@@ -8,18 +8,24 @@ Permissões:
 - NÃO acessa configuração do tenant
 - Recursos fora do escopo retornam 404 (não 403), para não revelar existência
 """
+import asyncio
 import json
+from datetime import datetime, timezone
 from typing import List, Optional
 from uuid import UUID
 
+from types import SimpleNamespace
+from typing import Literal
+
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.sql import text
 
 from app.api.middleware.auth import require_corretor
 from app.domain.imovel.service import ImovelService
 from app.domain.cliente.service import ClienteService
 from app.domain.conversa.service import ConversaService
+from app.domain.atendimento import foto_contato
 from app.domain.atendimento.ingestao import agendar_analise
 from app.domain.whatsapp.corretor import CorretorWhatsAppService, config_assistente
 from app.domain.whatsapp.service import WhatsAppIntegrationError
@@ -188,6 +194,57 @@ async def atualizar_assistente(body: AssistenteConfig, corretor=Depends(require_
     return body
 
 
+_tarefas_foto: set = set()
+
+
+def _buscar_fotos_em_segundo_plano(corretor, linhas) -> None:
+    """Puxa foto e nome dos contatos sem atrasar a lista; falhas só vão para o log."""
+    if not linhas:
+        return
+
+    async def rodar():
+        for r in linhas:
+            await foto_contato.sincronizar(corretor.tenant_id, corretor.corretor_id, r.id)
+
+    tarefa = asyncio.create_task(rodar())
+    _tarefas_foto.add(tarefa)
+    tarefa.add_done_callback(_tarefas_foto.discard)
+
+
+@router.get("/atendimentos/{atendimento_id}/foto", summary="Foto de perfil do contato (a do WhatsApp)")
+async def foto_do_contato(atendimento_id: UUID, corretor=Depends(require_corretor)):
+    from fastapi import Response
+
+    from app.shared.storage import ler_midia
+
+    async with get_session(corretor.tenant_id) as session:
+        ref = (await session.execute(
+            text("SELECT foto_ref FROM atendimentos WHERE id = :aid AND tenant_id = :tid AND corretor_id = :cid"),
+            {"aid": str(atendimento_id), "tid": str(corretor.tenant_id), "cid": str(corretor.corretor_id)})).scalar()
+    lido = await ler_midia(ref) if ref else None
+    if not lido:
+        raise HTTPException(status_code=404, detail="Este contato não tem foto.")
+    return Response(content=lido[0], media_type=lido[1], headers={"Cache-Control": "private, max-age=86400"})
+
+
+@router.post("/atendimentos/{atendimento_id}/foto/atualizar", summary="Busca de novo a foto e o nome do contato no WhatsApp")
+async def atualizar_foto_do_contato(atendimento_id: UUID, corretor=Depends(require_corretor)):
+    await _atendimento_do_corretor(corretor, atendimento_id)
+    resultado = await foto_contato.sincronizar(corretor.tenant_id, corretor.corretor_id, atendimento_id, forcar=True)
+    mensagens = {
+        "atualizada": "Foto atualizada a partir do WhatsApp.",
+        "sem_foto": "O contato não tem foto visível (ou ela está oculta por privacidade).",
+        "sem_sessao": "Conecte seu WhatsApp para buscar a foto.",
+        "erro": "Não foi possível buscar agora. Tente de novo em instantes.",
+        "recente": "A foto foi buscada há pouco.",
+    }
+    async with get_session(corretor.tenant_id) as session:
+        r = (await session.execute(
+            text("SELECT COALESCE(l.nome, a.nome_contato) AS nome, a.foto_ref, a.foto_atualizada_em FROM atendimentos a LEFT JOIN crm_leads l ON l.id = a.lead_id WHERE a.id = :aid"),
+            {"aid": str(atendimento_id)})).first()
+    return {"resultado": resultado, "mensagem": mensagens[resultado], "nome": r.nome, "foto_url": foto_contato.url_da_foto(atendimento_id, r.foto_ref, r.foto_atualizada_em)}
+
+
 @router.get("/atendimentos/diagnostico", summary="Por que a lista de atendimentos está vazia: WhatsApp, assistente e última leitura")
 async def diagnostico_atendimentos(corretor=Depends(require_corretor)):
     async with get_session(corretor.tenant_id) as session:
@@ -247,7 +304,7 @@ async def listar_atendimentos(
                        a.lead_id, a.imobiliario, a.aguardando_corretor, a.ultima_mensagem_em,
                        a.ultima_do_cliente_em, a.analisado_em,
                        a.analise->>'resumo' AS resumo, a.analise->>'temperatura' AS temperatura,
-                       um.autor AS ultima_autor, um.tipo AS ultima_tipo,
+                       a.tipo_contato, a.tipo_manual, a.foto_ref, a.foto_atualizada_em, a.foto_tentada_em, um.autor AS ultima_autor, um.tipo AS ultima_tipo,
                        COALESCE(NULLIF(um.transcricao, ''), um.conteudo) AS ultima_texto,
                        (SELECT COUNT(*) FROM atendimento_mensagens m WHERE m.atendimento_id = a.id AND m.autor = 'cliente'
                           AND m.created_at > COALESCE((SELECT MAX(c.created_at) FROM atendimento_mensagens c WHERE c.atendimento_id = a.id AND c.autor = 'corretor'), 'epoch'::timestamptz)) AS nao_respondidas
@@ -263,10 +320,13 @@ async def listar_atendimentos(
             """),
             {"tid": str(corretor.tenant_id), "cid": str(corretor.corretor_id), "dias": dias},
         )
-        return [
-            {**dict(r._mapping), "telefone_cliente": mask_phone(r.telefone_cliente)}
-            for r in rows.fetchall()
-        ]
+        linhas = rows.fetchall()
+    _buscar_fotos_em_segundo_plano(corretor, [r for r in linhas if not r.foto_ref and (not r.foto_tentada_em or datetime.now(timezone.utc) - r.foto_tentada_em > foto_contato.REVISAR_APOS)][:5])
+    saida = []
+    for r in linhas:
+        d = {k: v for k, v in dict(r._mapping).items() if k not in ("foto_ref", "foto_atualizada_em", "foto_tentada_em")}
+        saida.append({**d, "telefone_cliente": mask_phone(r.telefone_cliente), "foto_url": foto_contato.url_da_foto(r.id, r.foto_ref, r.foto_atualizada_em)})
+    return saida
 
 
 @router.get("/atendimentos/{atendimento_id}", summary="Análise e mensagens de um atendimento")
@@ -275,7 +335,7 @@ async def detalhe_atendimento(atendimento_id: UUID, corretor=Depends(require_cor
         row = await session.execute(
             text("""
                 SELECT a.id, COALESCE(l.nome, a.nome_contato) AS nome, a.telefone_cliente, a.lead_id,
-                       a.imobiliario, a.aguardando_corretor, a.analise, a.analisado_em, a.ultima_mensagem_em
+                       a.imobiliario, a.tipo_contato, a.tipo_manual, a.foto_ref, a.foto_atualizada_em, a.aguardando_corretor, a.analise, a.analisado_em, a.ultima_mensagem_em
                 FROM atendimentos a
                 LEFT JOIN crm_leads l ON l.id = a.lead_id
                 WHERE a.id = :aid AND a.tenant_id = :tid AND a.corretor_id = :cid
@@ -294,25 +354,246 @@ async def detalhe_atendimento(atendimento_id: UUID, corretor=Depends(require_cor
             """),
             {"aid": str(atendimento_id)},
         )
-        return {**dict(at._mapping), "mensagens": [dict(m._mapping) for m in msgs.fetchall()]}
+        base = {k: v for k, v in dict(at._mapping).items() if k not in ("foto_ref", "foto_atualizada_em")}
+        return {**base, "foto_url": foto_contato.url_da_foto(at.id, at.foto_ref, at.foto_atualizada_em), "mensagens": [dict(m._mapping) for m in msgs.fetchall()]}
 
 
-@router.post(
-    "/atendimentos/{atendimento_id}/analisar",
-    status_code=202,
-    summary="Pede uma nova análise do atendimento (em segundos)",
-)
-async def reanalisar_atendimento(atendimento_id: UUID, corretor=Depends(require_corretor)):
+class TipoContato(BaseModel):
+    # None volta ao automático (a IA decide); os demais fixam o tipo escolhido pelo corretor.
+    tipo: Optional[Literal["imobiliario", "pessoal", "outro"]] = None
+
+
+@router.patch("/atendimentos/{atendimento_id}/tipo", summary="Define se o contato é imobiliário, pessoal ou outro (ou volta ao automático)")
+async def definir_tipo_do_contato(atendimento_id: UUID, body: TipoContato, corretor=Depends(require_corretor)):
     async with get_session(corretor.tenant_id) as session:
-        row = await session.execute(
-            text("SELECT 1 FROM atendimentos WHERE id = :aid AND corretor_id = :cid"),
-            {"aid": str(atendimento_id), "cid": str(corretor.corretor_id)},
-        )
-        if not row.first():
+        existe = (await session.execute(
+            text("SELECT 1 FROM atendimentos WHERE id = :aid AND tenant_id = :tid AND corretor_id = :cid"),
+            {"aid": str(atendimento_id), "tid": str(corretor.tenant_id), "cid": str(corretor.corretor_id)})).first()
+        if not existe:
             raise HTTPException(status_code=404, detail="Atendimento não encontrado.")
-        # Força nova análise mesmo sem mensagem nova.
+        if body.tipo is None:
+            # Automático: a próxima análise classifica de novo.
+            await session.execute(
+                text("UPDATE atendimentos SET tipo_contato = NULL, tipo_manual = FALSE, imobiliario = NULL, analisado_em = NULL WHERE id = :aid"),
+                {"aid": str(atendimento_id)})
+        else:
+            await session.execute(
+                text("UPDATE atendimentos SET tipo_contato = :t, tipo_manual = TRUE, imobiliario = :imob WHERE id = :aid"),
+                {"t": body.tipo, "imob": body.tipo == "imobiliario", "aid": str(atendimento_id)})
+    return {"tipo_contato": body.tipo, "tipo_manual": body.tipo is not None, "imobiliario": (body.tipo == "imobiliario") if body.tipo else None}
+
+
+@router.post("/atendimentos/{atendimento_id}/analisar", summary="Analisa o atendimento agora e devolve o resultado")
+async def reanalisar_atendimento(atendimento_id: UUID, corretor=Depends(require_corretor)):
+    """Roda a análise na hora (não depende da fila nem do worker) e diz o motivo quando não dá."""
+    from app.domain.atendimento.analise import analisar
+    from app.integration.llm.gemini import GeminiError
+
+    async with get_session(corretor.tenant_id) as session:
+        existe = (await session.execute(
+            text("SELECT 1 FROM atendimentos WHERE id = :aid AND corretor_id = :cid"),
+            {"aid": str(atendimento_id), "cid": str(corretor.corretor_id)})).first()
+        if not existe:
+            raise HTTPException(status_code=404, detail="Atendimento não encontrado.")
+        cfg = config_assistente((await session.execute(
+            text("SELECT assistente_config FROM corretores WHERE id = :cid"), {"cid": str(corretor.corretor_id)})).scalar())
+        if not cfg["ativo"]:
+            raise HTTPException(status_code=409, detail="O assistente está desligado. Ligue-o em Configurações para analisar suas conversas.")
+        try:
+            analise = await analisar(session, corretor.tenant_id, corretor.corretor_id, str(atendimento_id), avisar=False, levantar_erro_da_ia=True)
+        except GeminiError as e:
+            raise HTTPException(status_code=503, detail="A IA não respondeu agora (confira a chave do Gemini no servidor ou tente em instantes).") from e
+    if analise is None:
+        raise HTTPException(status_code=422, detail="Ainda não há mensagens para analisar neste atendimento.")
+    return {"analise": analise}
+
+
+class PedidoSugestao(BaseModel):
+    instrucao: Optional[str] = Field(default=None, max_length=300)
+
+
+@router.post("/atendimentos/{atendimento_id}/sugerir-resposta", summary="Escreve na hora uma sugestão de mensagem para o cliente")
+async def sugerir_resposta_ao_cliente(atendimento_id: UUID, body: PedidoSugestao, corretor=Depends(require_corretor)):
+    from app.domain.atendimento.analise import sugerir_resposta
+    from app.integration.llm.gemini import GeminiError
+
+    await _atendimento_do_corretor(corretor, atendimento_id)
+    async with get_session(corretor.tenant_id) as session:
+        try:
+            texto = await sugerir_resposta(session, corretor.tenant_id, corretor.corretor_id, str(atendimento_id), body.instrucao)
+        except GeminiError as e:
+            raise HTTPException(status_code=503, detail="A IA não respondeu agora (confira a chave do Gemini no servidor ou tente em instantes).") from e
+    if not texto:
+        raise HTTPException(status_code=422, detail="Ainda não há mensagens neste atendimento para sugerir uma resposta.")
+    return {"texto": texto}
+
+
+# --- Envio ao cliente pelo WhatsApp pessoal do corretor ------------------------------------------------
+
+LIMITE_ENVIOS_POR_MINUTO = 20
+
+
+class EnvioTexto(BaseModel):
+    texto: str = Field(min_length=1, max_length=4000)
+
+
+class EnvioAcao(BaseModel):
+    tipo: Literal["imoveis", "book"]
+    codigos: List[int] = Field(default_factory=list, max_length=12)
+    mensagem: str = Field(default="", max_length=1000)
+    modelo_id: Optional[UUID] = None
+    titulo: str = Field(default="", max_length=80)
+
+
+async def _contexto_de_envio(corretor, atendimento_id: UUID):
+    """Atendimento do corretor + sessão do WhatsApp pessoal conectada; erros claros para a tela."""
+    async with get_session(corretor.tenant_id) as session:
+        at = (await session.execute(
+            text("SELECT id, telefone_cliente, lead_id FROM atendimentos WHERE id = :aid AND tenant_id = :tid AND corretor_id = :cid"),
+            {"aid": str(atendimento_id), "tid": str(corretor.tenant_id), "cid": str(corretor.corretor_id)})).first()
+        ws = (await session.execute(
+            text("SELECT instance_id, status FROM whatsapp_sessions WHERE corretor_id = :cid AND tipo = 'corretor'"),
+            {"cid": str(corretor.corretor_id)})).first()
+    if not at:
+        raise HTTPException(status_code=404, detail="Atendimento não encontrado.")
+    if not ws or ws.status != "connected":
+        raise HTTPException(status_code=409, detail="Seu WhatsApp não está conectado. Conecte em Configurações para enviar mensagens.")
+    from app.shared.redis import get_redis_pool
+
+    redis = get_redis_pool()
+    chave = f"envio_cliente:{corretor.corretor_id}"
+    usados = await redis.incr(chave)
+    if usados == 1:
+        await redis.expire(chave, 60)
+    if usados > LIMITE_ENVIOS_POR_MINUTO:
+        raise HTTPException(status_code=429, detail="Muitos envios em pouco tempo. Aguarde um minuto (isso protege o seu número).")
+    return at, ws
+
+
+async def _registrar_envio(corretor, atendimento_id: UUID, resposta: dict, tipo: str, conteudo: str, midia: Optional[dict] = None) -> dict:
+    """Guarda a mensagem enviada no atendimento; usa o id que o WhatsApp devolveu (o eco do webhook não duplica)."""
+    import time as _t
+    from uuid import uuid4
+
+    mid = ((resposta or {}).get("key") or {}).get("id") or f"portal_{int(_t.time() * 1000)}_{uuid4().hex[:6]}"
+    async with get_session(corretor.tenant_id) as session:
+        linha = (await session.execute(
+            text("""
+                INSERT INTO atendimento_mensagens (tenant_id, atendimento_id, message_id, autor, tipo, conteudo, midia)
+                VALUES (:tid, :aid, :mid, 'corretor', :tipo, :conteudo, CAST(:midia AS jsonb))
+                ON CONFLICT (tenant_id, message_id) DO NOTHING RETURNING id, created_at
+            """),
+            {"tid": str(corretor.tenant_id), "aid": str(atendimento_id), "mid": mid, "tipo": tipo, "conteudo": conteudo,
+             "midia": json.dumps(midia) if midia else None})).first()
         await session.execute(
-            text("UPDATE atendimentos SET analisado_em = NULL WHERE id = :aid"), {"aid": str(atendimento_id)}
-        )
-    await agendar_analise(corretor.tenant_id, corretor.corretor_id, str(atendimento_id), 0)
-    return {"status": "agendada"}
+            text("UPDATE atendimentos SET ultima_mensagem_em = NOW(), aguardando_corretor = FALSE WHERE id = :aid"),
+            {"aid": str(atendimento_id)})
+    return {"id": str(linha.id) if linha else mid, "autor": "corretor", "tipo": tipo, "conteudo": conteudo, "transcricao": None,
+            "created_at": linha.created_at.isoformat() if linha else None}
+
+
+@router.post("/atendimentos/{atendimento_id}/enviar", summary="Envia uma mensagem de texto ao cliente pelo seu WhatsApp")
+async def enviar_ao_cliente(atendimento_id: UUID, body: EnvioTexto, corretor=Depends(require_corretor)):
+    from app.integration.whatsapp.evolution import EvolutionClient
+
+    at, ws = await _contexto_de_envio(corretor, atendimento_id)
+    texto = body.texto.strip()
+    if not texto:
+        raise HTTPException(status_code=422, detail="Escreva a mensagem.")
+    try:
+        resposta = await EvolutionClient().send_text(instance_id=ws.instance_id, to=at.telefone_cliente, text=texto)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail="O WhatsApp não aceitou a mensagem agora. Tente de novo em instantes.") from e
+    return await _registrar_envio(corretor, atendimento_id, resposta, "text", texto)
+
+
+async def _partes_da_acao(corretor, at, body: EnvioAcao):
+    from app.domain.conversa.portal import ConversaPortalService, PortalErro
+
+    async with get_session(corretor.tenant_id) as session:
+        servico = ConversaPortalService(session, corretor.tenant_id)
+        try:
+            partes = await servico.montar_acao(body.tipo, body.codigos, None, body.mensagem, body.modelo_id, body.titulo)
+        except PortalErro as e:
+            raise HTTPException(status_code=e.status, detail=str(e))
+    return partes
+
+
+@router.post("/atendimentos/{atendimento_id}/acoes-rapidas/previa", summary="O que será enviado ao cliente, sem enviar")
+async def previa_ao_cliente(atendimento_id: UUID, body: EnvioAcao, corretor=Depends(require_corretor)):
+    at = await _atendimento_do_corretor(corretor, atendimento_id)
+    return {"mensagens": await _partes_da_acao(corretor, at, body)}
+
+
+async def _identidade(corretor):
+    async with get_session(corretor.tenant_id) as session:
+        nome = (await session.execute(text("SELECT nome FROM corretores WHERE id = :cid"), {"cid": str(corretor.corretor_id)})).scalar()
+    return SimpleNamespace(nome=nome, id=corretor.corretor_id)
+
+
+async def _atendimento_do_corretor(corretor, atendimento_id: UUID):
+    async with get_session(corretor.tenant_id) as session:
+        at = (await session.execute(
+            text("SELECT id, telefone_cliente FROM atendimentos WHERE id = :aid AND tenant_id = :tid AND corretor_id = :cid"),
+            {"aid": str(atendimento_id), "tid": str(corretor.tenant_id), "cid": str(corretor.corretor_id)})).first()
+    if not at:
+        raise HTTPException(status_code=404, detail="Atendimento não encontrado.")
+    return at
+
+
+@router.post("/atendimentos/{atendimento_id}/acoes-rapidas/book-pdf", summary="PDF do book para conferir antes de enviar ao cliente")
+async def book_ao_cliente(atendimento_id: UUID, body: EnvioAcao, corretor=Depends(require_corretor)):
+    from fastapi import Response
+
+    from app.domain.conversa.portal import ConversaPortalService, PortalErro
+
+    await _atendimento_do_corretor(corretor, atendimento_id)
+    async with get_session(corretor.tenant_id) as session:
+        try:
+            book = await ConversaPortalService(session, corretor.tenant_id).pdf_do_book(
+                await _identidade(corretor), body.codigos, body.modelo_id, body.titulo)
+        except PortalErro as e:
+            raise HTTPException(status_code=e.status, detail=str(e))
+    return Response(book["pdf"], media_type="application/pdf", headers={"Content-Disposition": f'inline; filename="{book["arquivo"]}"'})
+
+
+@router.post("/atendimentos/{atendimento_id}/acoes-rapidas/enviar", summary="Envia imóveis (cartões) ou um book em PDF ao cliente")
+async def enviar_acao_ao_cliente(atendimento_id: UUID, body: EnvioAcao, corretor=Depends(require_corretor)):
+    import base64
+
+    from app.domain.conversa.portal import ConversaPortalService, PortalErro
+    from app.integration.whatsapp.evolution import EvolutionClient
+
+    at, ws = await _contexto_de_envio(corretor, atendimento_id)
+    partes = await _partes_da_acao(corretor, at, body)
+    cliente, enviadas = EvolutionClient(), []
+    for parte in partes:
+        try:
+            if parte["tipo"] == "document":
+                async with get_session(corretor.tenant_id) as session:
+                    book = await ConversaPortalService(session, corretor.tenant_id).pdf_do_book(
+                        await _identidade(corretor), parte["codigos"], body.modelo_id, body.titulo)
+                resposta = await cliente.send_media(
+                    instance_id=ws.instance_id, to=at.telefone_cliente, media_url=base64.b64encode(book["pdf"]).decode(),
+                    caption=f"Book de imóveis · {parte['cartao']['titulo']}", mediatype="document", mimetype="application/pdf", file_name=book["arquivo"])
+                enviadas.append(await _registrar_envio(corretor, atendimento_id, resposta, "document", f"Book com {len(parte['codigos'])} imóveis · {book['arquivo']}"))
+            elif parte.get("foto_url"):
+                try:
+                    resposta = await cliente.send_media(instance_id=ws.instance_id, to=at.telefone_cliente, media_url=parte["foto_url"],
+                                                        caption=parte["texto"][:1000], file_name=f"imovel-{parte.get('codigo', 'foto')}.jpg")
+                    enviadas.append(await _registrar_envio(corretor, atendimento_id, resposta, "image", parte["texto"]))
+                except Exception:  # noqa: BLE001 - sem a foto, vai o texto
+                    resposta = await cliente.send_text(instance_id=ws.instance_id, to=at.telefone_cliente, text=parte["texto"])
+                    enviadas.append(await _registrar_envio(corretor, atendimento_id, resposta, "text", parte["texto"]))
+            else:
+                resposta = await cliente.send_text(instance_id=ws.instance_id, to=at.telefone_cliente, text=parte["texto"])
+                enviadas.append(await _registrar_envio(corretor, atendimento_id, resposta, "text", parte["texto"]))
+        except PortalErro as e:
+            raise HTTPException(status_code=e.status, detail=str(e))
+        except HTTPException:
+            raise
+        except Exception:  # noqa: BLE001
+            break
+    if not enviadas:
+        raise HTTPException(status_code=502, detail="O WhatsApp não aceitou o envio agora. Tente de novo em instantes.")
+    return {"mensagens": enviadas, "falhas": len(partes) - len(enviadas)}

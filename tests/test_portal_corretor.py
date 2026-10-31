@@ -219,3 +219,216 @@ async def test_diagnostico_e_religar_assistente_reabre_a_leitura(cenario, client
     finally:
         async with get_admin_session() as s:
             await s.execute(text("DELETE FROM whatsapp_sessions WHERE corretor_id = :c"), {"c": a})
+
+
+async def _com_atendimento(tid, ids, conectado=True):
+    c = ids["a"]["corretor"]
+    async with get_admin_session() as s:
+        await s.execute(text("DELETE FROM whatsapp_sessions WHERE corretor_id = :c"), {"c": c})
+        await s.execute(text("UPDATE corretores SET assistente_config = '{}'::jsonb WHERE id = :c"), {"c": c})
+        await s.execute(text("""INSERT INTO whatsapp_sessions (tenant_id, corretor_id, tipo, instance_id, numero, status)
+                                VALUES (:t, :c, 'corretor', :i, '+559900000001', :st)"""),
+                        {"t": tid, "c": c, "i": f"teste_{c.hex[:12]}", "st": "connected" if conectado else "disconnected"})
+        aid = (await s.execute(text("""INSERT INTO atendimentos (tenant_id, corretor_id, telefone_cliente, nome_contato, aguardando_corretor)
+                                       VALUES (:t, :c, '+5563988887777', 'Cliente Teste', TRUE)
+                                       ON CONFLICT (corretor_id, telefone_cliente) DO UPDATE SET aguardando_corretor = TRUE RETURNING id"""),
+                                {"t": tid, "c": c})).scalar()
+    return aid
+
+
+async def _limpar_atendimento(ids):
+    c = ids["a"]["corretor"]
+    async with get_admin_session() as s:
+        await s.execute(text("DELETE FROM atendimento_mensagens WHERE atendimento_id IN (SELECT id FROM atendimentos WHERE corretor_id = :c)"), {"c": c})
+        await s.execute(text("DELETE FROM atendimentos WHERE corretor_id = :c"), {"c": c})
+        await s.execute(text("DELETE FROM whatsapp_sessions WHERE corretor_id = :c"), {"c": c})
+
+
+async def test_corretor_envia_mensagem_ao_cliente_pelo_proprio_whatsapp(cenario, cliente, monkeypatch):
+    from app.integration.whatsapp import evolution
+    enviados = []
+
+    async def falso(self, instance_id, to, text):
+        enviados.append((instance_id, to, text))
+        return {"key": {"id": f"MSG{len(enviados)}"}}
+
+    monkeypatch.setattr(evolution.EvolutionClient, "send_text", falso)
+    tid, ids = cenario
+    aid = await _com_atendimento(tid, ids)
+    try:
+        h = _auth(tid, ids["a"]["corretor"])
+        r = await cliente.post(f"/corretor/atendimentos/{aid}/enviar", headers=h, json={"texto": "Oi, tudo bem?"})
+        assert r.status_code == 200, r.text
+        assert enviados == [(f"teste_{ids['a']['corretor'].hex[:12]}", "+5563988887777", "Oi, tudo bem?")]
+        d = (await cliente.get(f"/corretor/atendimentos/{aid}", headers=h)).json()
+        assert d["mensagens"][-1]["conteudo"] == "Oi, tudo bem?" and d["mensagens"][-1]["autor"] == "corretor"
+        assert d["aguardando_corretor"] is False
+        # outro corretor não envia pelo atendimento alheio
+        r = await cliente.post(f"/corretor/atendimentos/{aid}/enviar", headers=_auth(tid, ids["b"]["corretor"]), json={"texto": "x"})
+        assert r.status_code == 404
+        assert (await cliente.post(f"/corretor/atendimentos/{aid}/enviar", headers=h, json={"texto": ""})).status_code == 422
+    finally:
+        await _limpar_atendimento(ids)
+
+
+async def test_envio_exige_whatsapp_conectado(cenario, cliente):
+    tid, ids = cenario
+    aid = await _com_atendimento(tid, ids, conectado=False)
+    try:
+        r = await cliente.post(f"/corretor/atendimentos/{aid}/enviar", headers=_auth(tid, ids["a"]["corretor"]), json={"texto": "oi"})
+        assert r.status_code == 409 and "conectado" in r.json()["detail"]
+    finally:
+        await _limpar_atendimento(ids)
+
+
+async def test_analise_na_hora_explica_a_falha(cenario, cliente, monkeypatch):
+    from app.domain.atendimento import analise as mod
+    from app.integration.llm.gemini import GeminiError
+    tid, ids = cenario
+    aid = await _com_atendimento(tid, ids)
+    try:
+        async with get_admin_session() as s:
+            await s.execute(text("INSERT INTO atendimento_mensagens (tenant_id, atendimento_id, message_id, autor, tipo, conteudo) VALUES (:t, :a, :m, 'cliente', 'text', 'Quero um apto')"),
+                            {"t": tid, "a": aid, "m": f"t{uuid4().hex}"})
+
+        class Quebrado:
+            async def gerar_json(self, *a, **k):
+                raise GeminiError("sem chave")
+
+        monkeypatch.setattr(mod, "GeminiClient", Quebrado)
+        h = _auth(tid, ids["a"]["corretor"])
+        r = await cliente.post(f"/corretor/atendimentos/{aid}/analisar", headers=h)
+        assert r.status_code == 503 and "Gemini" in r.json()["detail"]
+
+        class Bom:
+            async def gerar_json(self, *a, **k):
+                return {"imobiliario": False, "resumo": "Cliente quer um apartamento.", "temperatura": "morno"}
+
+        monkeypatch.setattr(mod, "GeminiClient", Bom)
+        r = await cliente.post(f"/corretor/atendimentos/{aid}/analisar", headers=h)
+        assert r.status_code == 200 and r.json()["analise"]["resumo"].startswith("Cliente quer")
+        assert (await cliente.get(f"/corretor/atendimentos/{aid}", headers=h)).json()["analise"]["resumo"]
+    finally:
+        await _limpar_atendimento(ids)
+
+
+async def test_sugerir_resposta_gera_na_hora(cenario, cliente, monkeypatch):
+    from app.domain.atendimento import analise as mod
+    from app.integration.llm.gemini import GeminiError
+    tid, ids = cenario
+    aid = await _com_atendimento(tid, ids)
+    h = _auth(tid, ids["a"]["corretor"])
+    try:
+        assert (await cliente.post(f"/corretor/atendimentos/{aid}/sugerir-resposta", headers=h, json={})).status_code == 422  # sem mensagens
+        async with get_admin_session() as s:
+            await s.execute(text("INSERT INTO atendimento_mensagens (tenant_id, atendimento_id, message_id, autor, tipo, conteudo) VALUES (:t, :a, :m, 'cliente', 'text', 'Qual o valor do condomínio?')"),
+                            {"t": tid, "a": aid, "m": f"t{uuid4().hex}"})
+        visto = {}
+
+        class Bom:
+            async def gerar_json(self, sistema, conteudo, max_tokens=0):
+                visto["conteudo"] = conteudo
+                return {"sugestao": "Oi! O condomínio é [confirmar valor]."}
+
+        monkeypatch.setattr(mod, "GeminiClient", Bom)
+        r = await cliente.post(f"/corretor/atendimentos/{aid}/sugerir-resposta", headers=h, json={"instrucao": "mais formal"})
+        assert r.status_code == 200 and r.json()["texto"].startswith("Oi!")
+        assert "Qual o valor do condomínio?" in visto["conteudo"] and "mais formal" in visto["conteudo"]
+
+        class Quebrado:
+            async def gerar_json(self, *a, **k):
+                raise GeminiError("x")
+
+        monkeypatch.setattr(mod, "GeminiClient", Quebrado)
+        assert (await cliente.post(f"/corretor/atendimentos/{aid}/sugerir-resposta", headers=h, json={})).status_code == 503
+        assert (await cliente.post(f"/corretor/atendimentos/{aid}/sugerir-resposta", headers=_auth(tid, ids["b"]["corretor"]), json={})).status_code == 404
+    finally:
+        await _limpar_atendimento(ids)
+
+
+async def test_corretor_define_o_tipo_do_contato_e_a_ia_respeita(cenario, cliente, monkeypatch):
+    from app.domain.atendimento import analise as mod
+    tid, ids = cenario
+    aid = await _com_atendimento(tid, ids)
+    h = _auth(tid, ids["a"]["corretor"])
+    try:
+        async with get_admin_session() as s:
+            await s.execute(text("INSERT INTO atendimento_mensagens (tenant_id, atendimento_id, message_id, autor, tipo, conteudo) VALUES (:t, :a, :m, 'cliente', 'text', 'Vamos jantar sábado?')"),
+                            {"t": tid, "a": aid, "m": f"t{uuid4().hex}"})
+        chamadas = []
+
+        class Ia:
+            async def gerar_json(self, *a, **k):
+                chamadas.append(1)
+                return {"imobiliario": True, "resumo": "Quer imóvel", "temperatura": "morno"}
+
+        monkeypatch.setattr(mod, "GeminiClient", Ia)
+        # a IA achou imobiliário; o corretor corrige para pessoal
+        assert (await cliente.post(f"/corretor/atendimentos/{aid}/analisar", headers=h)).status_code == 200
+        r = await cliente.patch(f"/corretor/atendimentos/{aid}/tipo", headers=h, json={"tipo": "pessoal"})
+        assert r.status_code == 200 and r.json()["imobiliario"] is False
+        lista = (await cliente.get("/corretor/atendimentos?dias=30", headers=h)).json()
+        assert aid.hex not in {x["id"].replace("-", "") for x in lista}  # some da lista padrão
+        todos = (await cliente.get("/corretor/atendimentos?dias=30&todos=true", headers=h)).json()
+        item = next(x for x in todos if x["id"] == str(aid))
+        assert item["tipo_contato"] == "pessoal" and item["tipo_manual"] is True
+        # com o tipo fixado, a análise não roda (sem gasto de IA) e não reclassifica
+        antes = len(chamadas)
+        assert (await cliente.post(f"/corretor/atendimentos/{aid}/analisar", headers=h)).status_code == 422
+        assert len(chamadas) == antes
+        # fixar imobiliário vence a IA mesmo se ela discordar
+        await cliente.patch(f"/corretor/atendimentos/{aid}/tipo", headers=h, json={"tipo": "imobiliario"})
+        assert aid in {__import__("uuid").UUID(x["id"]) for x in (await cliente.get("/corretor/atendimentos?dias=30", headers=h)).json()}
+        # voltar ao automático
+        r = await cliente.patch(f"/corretor/atendimentos/{aid}/tipo", headers=h, json={"tipo": None})
+        assert r.json()["tipo_manual"] is False
+        # outro corretor não mexe
+        assert (await cliente.patch(f"/corretor/atendimentos/{aid}/tipo", headers=_auth(tid, ids["b"]["corretor"]), json={"tipo": "pessoal"})).status_code == 404
+    finally:
+        await _limpar_atendimento(ids)
+
+
+async def test_foto_e_nome_do_contato(cenario, cliente, monkeypatch):
+    from app.integration.whatsapp import evolution
+    from app.shared import storage
+    guardados = {}
+
+    async def foto(self, instance_id, number):
+        return "https://cdn.exemplo.com/foto.jpg"
+
+    async def contato(self, instance_id, number):
+        return {"pushName": "Maria da Silva"}
+
+    async def baixar(url):
+        return b"\xff\xd8\xff fake-jpeg", "image/jpeg"
+
+    async def guardar(chave, dados, tipo):
+        guardados[chave] = dados
+        return "s3:" + chave
+
+    async def ler(ref):
+        return guardados[ref[3:]], "image/jpeg"
+
+    monkeypatch.setattr(evolution.EvolutionClient, "fetch_profile_picture_url", foto)
+    monkeypatch.setattr(evolution.EvolutionClient, "find_contact", contato)
+    from app.domain.atendimento import foto_contato as mod
+    monkeypatch.setattr(mod, "_baixar", baixar)
+    monkeypatch.setattr(storage, "guardar_objeto", guardar)
+    import app.api.routers.corretor_portal as rota
+    monkeypatch.setattr("app.shared.storage.ler_midia", ler)
+
+    tid, ids = cenario
+    aid = await _com_atendimento(tid, ids)
+    async with get_admin_session() as s:
+        await s.execute(text("UPDATE atendimentos SET nome_contato = NULL WHERE id = :a"), {"a": aid})
+    h = _auth(tid, ids["a"]["corretor"])
+    try:
+        r = await cliente.post(f"/corretor/atendimentos/{aid}/foto/atualizar", headers=h)
+        assert r.status_code == 200 and r.json()["resultado"] == "atualizada" and r.json()["nome"] == "Maria da Silva"
+        d = (await cliente.get(f"/corretor/atendimentos/{aid}", headers=h)).json()
+        assert d["nome"] == "Maria da Silva" and d["foto_url"].startswith(f"/corretor/atendimentos/{aid}/foto?v=")
+        assert (await cliente.get(d["foto_url"], headers=h)).content.startswith(b"\xff\xd8")
+        assert (await cliente.get(f"/corretor/atendimentos/{aid}/foto", headers=_auth(tid, ids["b"]["corretor"]))).status_code == 404
+        assert (await cliente.post(f"/corretor/atendimentos/{aid}/foto/atualizar", headers=_auth(tid, ids["b"]["corretor"]))).status_code == 404
+    finally:
+        await _limpar_atendimento(ids)

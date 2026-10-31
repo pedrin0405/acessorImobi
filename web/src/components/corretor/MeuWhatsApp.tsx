@@ -157,8 +157,8 @@ export default function MeuWhatsApp({ onAuthError }: { onAuthError: (e: unknown)
         ) : conectado ? (
           <div className="flex flex-wrap items-center justify-between gap-3">
             <p className="text-sm text-slate-600">
-              Número <strong>{status.numero}</strong> conectado. O assistente lê suas conversas com clientes; ele nunca
-              envia mensagens por este número.
+              Número <strong>{status.numero}</strong> conectado. O Acessor lê suas conversas com clientes e só envia
+              mensagens por este número quando você manda pelo portal; nunca por conta própria.
             </p>
             <button
               onClick={desconectar}
@@ -204,7 +204,7 @@ export default function MeuWhatsApp({ onAuthError }: { onAuthError: (e: unknown)
               </p>
               <ul className="list-disc pl-5 space-y-1">
                 <li>O assistente lê as conversas individuais deste número (grupos ficam de fora).</li>
-                <li>Ele <strong>nunca envia mensagens</strong> aos seus clientes. Resumos e sugestões chegam só para você, pelo WhatsApp do agente.</li>
+                <li>Ele <strong>nunca envia nada sozinho</strong> aos seus clientes: só sai mensagem pelo seu número quando você escreve ou escolhe imóveis no portal e confirma o envio. Resumos e sugestões chegam só para você.</li>
                 <li>Só você vê seus atendimentos no portal; a imobiliária não tem acesso às conversas.</li>
                 <li>As mensagens ficam guardadas por até 180 dias. Você pode desconectar quando quiser.</li>
               </ul>

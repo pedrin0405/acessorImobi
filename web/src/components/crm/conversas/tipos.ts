@@ -8,7 +8,14 @@ export interface ConversaResumo {
   ultimo_tipo: string;
   ultima_em: string | null;
   nao_respondidas: number;
+  /** Só atendimentos: foto do contato (caminho autenticado) e tipo escolhido/classificado. */
+  foto_url?: string | null;
+  tipo_contato?: TipoContato;
+  tipo_manual?: boolean;
+  imobiliario?: boolean | null;
 }
+
+export type TipoContato = "imobiliario" | "pessoal" | "outro" | null;
 
 /* ---------- Atendimentos: as conversas do corretor com os clientes no WhatsApp pessoal ---------- */
 
@@ -18,6 +25,9 @@ export interface AtendimentoItem {
   telefone_cliente: string;
   lead_id: string | null;
   imobiliario: boolean | null;
+  tipo_contato?: TipoContato;
+  tipo_manual?: boolean;
+  foto_url?: string | null;
   aguardando_corretor: boolean;
   ultima_mensagem_em: string | null;
   ultima_do_cliente_em: string | null;
@@ -36,6 +46,9 @@ export interface AtendimentoDetalhe {
   telefone_cliente: string;
   lead_id: string | null;
   imobiliario: boolean | null;
+  tipo_contato?: TipoContato;
+  tipo_manual?: boolean;
+  foto_url?: string | null;
   aguardando_corretor: boolean;
   analise: Record<string, unknown> | null;
   analisado_em: string | null;
@@ -55,5 +68,9 @@ export function atendimentoParaConversa(a: AtendimentoItem): ConversaResumo {
     ultimo_tipo: a.ultima_tipo || "text",
     ultima_em: a.ultima_mensagem_em,
     nao_respondidas: a.nao_respondidas,
+    foto_url: a.foto_url ?? null,
+    tipo_contato: a.tipo_contato ?? null,
+    tipo_manual: a.tipo_manual ?? false,
+    imobiliario: a.imobiliario ?? null,
   };
 }

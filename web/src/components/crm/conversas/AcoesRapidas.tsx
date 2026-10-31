@@ -61,6 +61,9 @@ export default function AcoesRapidas({
   onEnviado,
   onAuthError,
   mensagemInicial,
+  base,
+  tipos,
+  destino,
 }: {
   corretorId: string;
   corretorNome: string;
@@ -70,7 +73,15 @@ export default function AcoesRapidas({
   onAuthError: (e: unknown) => boolean;
   /** Texto que já vem no campo "mensagem junto" (ex.: "Para Maria:"). */
   mensagemInicial?: string;
+  /** Base dos endpoints de prévia/PDF/envio. Padrão: ações rápidas da conversa com o corretor (portal da imobiliária). */
+  base?: string;
+  /** O que pode ser enviado. Padrão: imóveis e ficha de cliente (a aba Imóveis também faz book). */
+  tipos?: ("imoveis" | "lead")[];
+  /** Envio a um cliente pelo WhatsApp do corretor: nome do cliente (muda os textos de título, prévia e botão). */
+  destino?: string;
 }) {
+  const caminhoBase = base ?? `/admin/conversas/${corretorId}/acoes-rapidas`;
+  const abas = tipos ?? ["imoveis", "lead"];
   const [tipo, setTipo] = useState<"imoveis" | "lead">(tipoInicial === "book" ? "imoveis" : tipoInicial);
   const [busca, setBusca] = useState("");
   const termo = useDebounce(busca.trim());
@@ -160,7 +171,7 @@ export default function AcoesRapidas({
   const chamar = async (caminho: string) => {
     setTrabalhando(true); setErro(null);
     try {
-      const res = await fetchApi(`/admin/conversas/${corretorId}/acoes-rapidas/${caminho}`, { method: "POST", body: JSON.stringify(corpo()) });
+      const res = await fetchApi(`${caminhoBase}/${caminho}`, { method: "POST", body: JSON.stringify(corpo()) });
       const d = await res.json().catch(() => ({}));
       if (!res.ok) throw new ErroApi(detalhe(d, "Não foi possível concluir agora."));
       return d;
@@ -195,15 +206,15 @@ export default function AcoesRapidas({
         <header className="flex items-center gap-3 px-5 pt-4 pb-3" style={{ borderBottom: "1px solid var(--line)" }}>
           {previa && <button type="button" onClick={() => setPrevia(null)} aria-label="Voltar" className="p-1.5 -ml-1.5 rounded-lg hover:bg-[var(--hover-solid)]" style={{ color: "var(--text-3)" }}><ArrowLeft className="w-5 h-5" /></button>}
           <div className="min-w-0 flex-1">
-            <h2 className="text-base font-semibold truncate" style={{ color: "var(--text)" }}>{previa ? `Prévia para ${corretorNome}` : `Enviar a ${corretorNome}`}</h2>
-            {!previa && <div role="tablist" aria-label="O que enviar" className="inline-flex mt-2 p-0.5 rounded-full" style={{ background: "var(--card-2)", border: "1px solid var(--line)" }}>{aba("imoveis", "Imóveis", Building2)}{aba("lead", "Cliente", UserRound)}</div>}
+            <h2 className="text-base font-semibold truncate" style={{ color: "var(--text)" }}>{previa ? `Prévia para ${destino ?? corretorNome}` : destino ? `Enviar ao cliente ${destino}` : `Enviar a ${corretorNome}`}</h2>
+            {!previa && abas.length > 1 && <div role="tablist" aria-label="O que enviar" className="inline-flex mt-2 p-0.5 rounded-full" style={{ background: "var(--card-2)", border: "1px solid var(--line)" }}>{aba("imoveis", "Imóveis", Building2)}{aba("lead", "Cliente", UserRound)}</div>}
           </div>
           <button type="button" onClick={onFechar} aria-label="Fechar" className="p-1.5 rounded-lg hover:bg-[var(--hover-solid)]" style={{ color: "var(--text-3)" }}><X className="w-5 h-5" /></button>
         </header>
 
         {previa ? (
           <div className="flex-1 overflow-y-auto px-5 py-4 space-y-3">
-            <p className="text-xs" style={{ color: "var(--text-3)" }}>É assim que chega no WhatsApp do corretor, pelo número do agente.</p>
+            <p className="text-xs" style={{ color: "var(--text-3)" }}>{destino ? `Será enviado ao cliente ${destino} pelo seu WhatsApp, exatamente assim.` : "É assim que chega no WhatsApp do corretor, pelo número do agente."}</p>
             {previa.map((p, i) => p.tipo === "document" ? (
               <div key={i} className="max-w-[24rem] rounded-2xl overflow-hidden border border-[var(--line-2)] flex items-center gap-3 px-3 py-3" style={{ background: "color-mix(in srgb, var(--info) 11%, var(--card))" }}>
                 <span className="w-10 h-12 rounded-lg flex items-center justify-center shrink-0" style={{ background: "var(--card-2)", color: "var(--danger)" }}><FileText className="w-5 h-5" aria-hidden /></span>
@@ -219,7 +230,7 @@ export default function AcoesRapidas({
                 <p className="px-3 py-2 text-sm leading-relaxed whitespace-pre-wrap break-words" style={{ color: "var(--text)" }}><Zap texto={p.texto} /></p>
               </div>
             ))}
-            {eBook && <PreviaPdf caminho={`/admin/conversas/${corretorId}/acoes-rapidas/book-pdf`} corpo={corpo()} chave={JSON.stringify(corpo())} automatica={false} nomeArquivo="book.pdf" altura="60vh" onAuthError={onAuthError} />}
+            {eBook && <PreviaPdf caminho={`${caminhoBase}/book-pdf`} corpo={corpo()} chave={JSON.stringify(corpo())} automatica={false} nomeArquivo="book.pdf" altura="60vh" onAuthError={onAuthError} />}
           </div>
         ) : (
           <>
@@ -319,7 +330,7 @@ export default function AcoesRapidas({
           {erro && previa ? <p role="alert" className="text-xs flex-1" style={{ color: "var(--danger)" }}>{erro}</p> : <span className="text-xs" style={{ color: "var(--text-3)" }}>{previa ? `${previa.length} ${previa.length === 1 ? "mensagem" : "mensagens"}` : tipo === "lead" ? "A ficha não leva CPF nem CNPJ." : ""}</span>}
           {previa ? (
             <button type="button" onClick={enviar} disabled={trabalhando} className="inline-flex items-center gap-2 px-5 h-10 rounded-full text-sm font-medium disabled:opacity-50" style={{ background: "var(--chip)", color: "var(--chip-text)" }}>
-              {trabalhando ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" aria-hidden />} {eBook ? "Enviar book" : "Enviar ao corretor"}
+              {trabalhando ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" aria-hidden />} {eBook ? "Enviar book" : destino ? "Enviar ao cliente" : "Enviar ao corretor"}
             </button>
           ) : (
             <button type="button" onClick={verPrevia} disabled={!escolhido || trabalhando} className="inline-flex items-center gap-2 px-5 h-10 rounded-full text-sm font-medium disabled:opacity-40 disabled:cursor-not-allowed" style={{ background: "var(--chip)", color: "var(--chip-text)" }}>

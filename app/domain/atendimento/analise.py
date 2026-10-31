@@ -156,6 +156,7 @@ async def analisar(
     corretor_id: UUID,
     atendimento_id: str,
     avisar: bool = True,
+    levantar_erro_da_ia: bool = False,
 ) -> Optional[Dict[str, Any]]:
     """Analisa o atendimento, atualiza carteira e análise e, se cabível, avisa o corretor."""
     row = await session.execute(
@@ -175,6 +176,8 @@ async def analisar(
     config = config_assistente(at.assistente_config)
     if not config["ativo"]:
         return None
+    if at.tipo_manual and at.tipo_contato != "imobiliario":
+        return None  # o corretor disse que é pessoal/outro: não gasta IA, não cria cliente e não avisa
     fuso = ZoneInfo(at.fuso or settings.usage_timezone)
 
     await _transcrever_audios(session, tenant_id, corretor_id, atendimento_id)
@@ -201,9 +204,11 @@ async def analisar(
         )
     except GeminiError as e:
         log.warning("atendimento_analise_falhou", error=str(e)[:200])
+        if levantar_erro_da_ia:
+            raise
         return None
 
-    imobiliario = bool(analise.get("imobiliario"))
+    imobiliario = True if (at.tipo_manual and at.tipo_contato == "imobiliario") else bool(analise.get("imobiliario"))
     nome = (analise.get("nome_cliente") or at.nome_contato or at.telefone_cliente).strip()[:255]
     perfil = normalizar_perfil(analise.get("perfil")) if imobiliario else {}
     temperatura = analise.get("temperatura") if analise.get("temperatura") in ("quente", "morno", "frio") else None
@@ -273,6 +278,36 @@ async def analisar(
             )
             log.info("atendimento_aviso_enviado", tenant_id=str(tenant_id)[:8])
     return analise
+
+
+PROMPT_SUGESTAO = """Você escreve a próxima mensagem de WhatsApp de um corretor de imóveis para o contato, a partir da conversa.
+Responda somente com JSON: {"sugestao": "<mensagem>"}.
+Regras: mensagem curta e natural, no tom e idioma do corretor e do cliente, pronta para enviar; se o cliente falou por último, responda ao que ele disse; se o corretor falou por último, escreva um acompanhamento gentil (follow-up) sem pressionar. Nunca afirme fatos que não estejam na conversa (preço, condições, FGTS, financiamento, disponibilidade, horários). Quando faltar uma informação que só o corretor sabe, deixe um marcador entre colchetes, por exemplo [confirmar horário]. Não use markdown nem assine."""
+
+
+async def sugerir_resposta(session, tenant_id: UUID, corretor_id: UUID, atendimento_id: str, instrucao: Optional[str] = None) -> Optional[str]:
+    """Rascunho da próxima mensagem para o cliente, gerado na hora a partir da conversa (None se não há conversa)."""
+    at = (await session.execute(
+        text("""SELECT a.nome_contato, a.telefone_cliente, t.fuso, c.nome AS corretor FROM atendimentos a
+                JOIN tenants t ON t.id = a.tenant_id JOIN corretores c ON c.id = a.corretor_id
+                WHERE a.id = :aid AND a.tenant_id = :tid AND a.corretor_id = :cid"""),
+        {"aid": atendimento_id, "tid": str(tenant_id), "cid": str(corretor_id)})).first()
+    if not at:
+        return None
+    msgs = (await session.execute(
+        text("""SELECT autor, tipo, conteudo, transcricao, created_at FROM (
+                    SELECT * FROM atendimento_mensagens WHERE atendimento_id = :aid ORDER BY created_at DESC LIMIT :lim
+                ) u ORDER BY created_at"""),
+        {"aid": atendimento_id, "lim": 40})).fetchall()
+    if not msgs:
+        return None
+    fuso = ZoneInfo(at.fuso or settings.usage_timezone)
+    conteudo = f"Corretor: {at.corretor or 'corretor'}\nContato: {at.nome_contato or 'sem nome'}\n\nConversa:\n" + montar_transcricao([dict(m._mapping) for m in msgs], fuso)
+    if instrucao:
+        conteudo += f"\n\nPedido do corretor para esta mensagem: {instrucao.strip()[:300]}"
+    resposta = await GeminiClient().gerar_json(PROMPT_SUGESTAO, conteudo, max_tokens=600)
+    texto = str(resposta.get("sugestao") or "").strip()
+    return texto or None
 
 
 async def processar_job_analise(job: Dict[str, Any]) -> None:

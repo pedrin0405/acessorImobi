@@ -7,7 +7,7 @@ import ChatMensagens, { MensagemChat } from "../ChatMensagens";
 import CompositorConversa, { ModoCompositor } from "./CompositorConversa";
 import { useEhCorretor } from "@/components/portal/papel";
 import AcoesRapidas, { TipoAcao } from "./AcoesRapidas";
-import CompositorAtendimento from "./CompositorAtendimento";
+import CompositorAtendimento, { ID_CAMPO_ATENDIMENTO } from "./CompositorAtendimento";
 import ListaConversas, { Avatar, Filtro } from "./ListaConversas";
 import PainelAtendimento, { AbaAtendimento } from "./PainelAtendimento";
 import PainelDetalhes, { AbaDetalhes, ResumoEstado } from "./PainelDetalhes";
@@ -35,6 +35,12 @@ const FILTROS_ATENDIMENTO: { id: Filtro; rotulo: string }[] = [
   { id: "sem-resposta", rotulo: "Sem resposta" },
   { id: "hoje", rotulo: "Hoje" },
 ];
+
+type MensagemAt = { id: string; autor: string; tipo: string; conteudo: string | null; transcricao: string | null; created_at: string | null };
+const mensagemDoAtendimento = (m: MensagemAt): MensagemChat => ({
+  id: m.id, direcao: m.autor === "corretor" ? "outbound" : "inbound", tipo: m.tipo, status: "sent", created_at: m.created_at,
+  conteudo: m.tipo === "audio" ? (m.transcricao || m.conteudo) : (m.conteudo || m.transcricao), origem: null,
+} as MensagemChat);
 
 export default function Conversas({
   conversas,
@@ -78,6 +84,9 @@ export default function Conversas({
   const [detalheAt, setDetalheAt] = useState<AtendimentoDetalhe | null>(null);
   const [abaAt, setAbaAt] = useState<AbaAtendimento>("info");
   const [reanalisando, setReanalisando] = useState(false);
+  const [erroAnalise, setErroAnalise] = useState<string | null>(null);
+  const [gerando, setGerando] = useState(false);
+  const [jaSugeriu, setJaSugeriu] = useState(false);
   const [info, setInfo] = useState<string | null>(null);
 
   const rolagem = useRef<HTMLDivElement | null>(null);
@@ -86,8 +95,15 @@ export default function Conversas({
   const selRef = useRef<string | null>(null);
   selRef.current = selId;
 
-  const sel = conversas.find((c) => c.corretor_id === selId) || null;
-  const selAt = modoAt ? atendimentos!.itens.find((a) => a.id === selId) || null : null;
+  // Atendimento reclassificado como pessoal sai da lista, mas continua aberto até o usuário sair dele.
+  const ultimo = useRef<{ id: string; conversa: ConversaResumo; item: AtendimentoItem | null } | null>(null);
+  const achada = conversas.find((c) => c.corretor_id === selId) || null;
+  if (achada && selId) ultimo.current = { id: selId, conversa: achada, item: modoAt ? atendimentos!.itens.find((a) => a.id === selId) || null : null };
+  const sel = achada || (modoAt && ultimo.current?.id === selId ? ultimo.current.conversa : null);
+  // Alterações feitas no painel (tipo, foto, nome) valem na hora, antes de a lista recarregar.
+  const [ajustes, setAjustes] = useState<Record<string, Partial<AtendimentoItem>>>({});
+  const selBase = modoAt ? (atendimentos!.itens.find((a) => a.id === selId) || (ultimo.current?.id === selId ? ultimo.current.item : null)) : null;
+  const selAt = selBase ? { ...selBase, ...(ajustes[selBase.id] ?? {}) } : null;
 
   // O painel de detalhes abre por padrão em telas largas; em telas menores é uma gaveta.
   useEffect(() => {
@@ -120,10 +136,7 @@ export default function Conversas({
         if (selRef.current !== id) return;
         if (modoAt) setDetalheAt(dados as AtendimentoDetalhe);
         const bruto: MensagemChat[] = modoAt
-          ? (dados as AtendimentoDetalhe).mensagens.map((m) => ({
-              id: m.id, direcao: m.autor === "corretor" ? "outbound" : "inbound", tipo: m.tipo, status: "sent", created_at: m.created_at,
-              conteudo: m.tipo === "audio" ? (m.transcricao || m.conteudo) : (m.conteudo || m.transcricao), origem: null,
-            }))
+          ? (dados as AtendimentoDetalhe).mensagens.map(mensagemDoAtendimento)
           : dados.mensagens || [];
         const novas: MensagemChat[] = bruto.filter((m: MensagemChat) => !ehCorretor || m.origem !== "nota");
         setMensagens((antes) => {
@@ -148,6 +161,8 @@ export default function Conversas({
       setMensagens([]);
       setDetalheAt(null);
       setAbaAt("info");
+      setErroAnalise(null);
+      setJaSugeriu(false);
       setInfo(null);
       setResumo({ estado: "ocioso", texto: "" });
       setFoco(null);
@@ -191,6 +206,47 @@ export default function Conversas({
     if (el) perto.current = el.scrollHeight - el.scrollTop - el.clientHeight < 140;
   };
 
+  // Sugestão de resposta gerada na hora pela IA a partir da conversa; vai para o campo, editável, sem enviar sozinha.
+  const sugerir = async (instrucao?: string) => {
+    if (!selId || gerando) return;
+    const id = selId;
+    setGerando(true);
+    setErroEnvio(null);
+    try {
+      const res = await fetchApi(`/corretor/atendimentos/${id}/sugerir-resposta`, { method: "POST", body: JSON.stringify(instrucao ? { instrucao } : {}) });
+      const dados = await res.json().catch(() => ({}));
+      if (!res.ok) throw new ErroApi(detalheDoErro(dados, "Não consegui sugerir uma resposta agora."));
+      if (selRef.current !== id) return;
+      setTexto(String(dados.texto ?? ""));
+      setJaSugeriu(true);
+      requestAnimationFrame(() => document.getElementById(ID_CAMPO_ATENDIMENTO)?.focus());
+    } catch (e) {
+      if (!onAuthError(e)) setErroEnvio(e instanceof ErroApi ? e.message : "Falha de conexão ao gerar a sugestão.");
+    } finally {
+      setGerando(false);
+    }
+  };
+
+  const enviarAoCliente = async () => {
+    const conteudo = texto.trim();
+    if (!conteudo || !selId || enviando) return;
+    setEnviando(true);
+    setErroEnvio(null);
+    try {
+      const res = await fetchApi(`/corretor/atendimentos/${selId}/enviar`, { method: "POST", body: JSON.stringify({ texto: conteudo }) });
+      const dados = await res.json().catch(() => ({}));
+      if (!res.ok) throw new ErroApi(detalheDoErro(dados, "Não foi possível enviar agora."));
+      forcarFim.current = true;
+      setMensagens((m) => [...m, mensagemDoAtendimento(dados)]);
+      setTexto("");
+      onRecarregar();
+    } catch (e) {
+      if (!onAuthError(e)) setErroEnvio(e instanceof ErroApi ? e.message : "Falha de conexão. Sua mensagem continua no campo; tente de novo.");
+    } finally {
+      setEnviando(false);
+    }
+  };
+
   const enviar = async () => {
     const conteudo = texto.trim();
     if (!conteudo || !selId || enviando) return;
@@ -215,19 +271,35 @@ export default function Conversas({
     }
   };
 
+  // A análise roda na hora (alguns segundos) e responde com o resultado ou com o motivo da falha.
   const reanalisar = async () => {
     if (!selId || reanalisando) return;
     const id = selId;
     setReanalisando(true);
+    setErroAnalise(null);
+    setDetalhesAberto(true);
+    setAbaAt("info");
     try {
       const res = await fetchApi(`/corretor/atendimentos/${id}/analisar`, { method: "POST" });
-      if (!res.ok) throw new ErroApi("Não foi possível pedir a análise agora.");
-      // a análise leva alguns segundos: recarrega duas vezes e libera o botão
-      setTimeout(() => { if (selRef.current === id) { buscarMensagens(id, true); onRecarregar(); } }, 6000);
-      setTimeout(() => { if (selRef.current === id) { buscarMensagens(id, true); onRecarregar(); } setReanalisando(false); }, 15000);
+      const dados = await res.json().catch(() => ({}));
+      if (!res.ok) throw new ErroApi(detalheDoErro(dados, "Não foi possível analisar agora."));
+      if (selRef.current === id) { await buscarMensagens(id, true); onRecarregar(); }
     } catch (e) {
+      if (!onAuthError(e)) setErroAnalise(e instanceof ErroApi ? e.message : "Falha de conexão ao analisar. Tente de novo.");
+    } finally {
       setReanalisando(false);
-      if (!onAuthError(e)) setErroEnvio(e instanceof ErroApi ? e.message : "Falha de conexão ao pedir a análise.");
+    }
+  };
+
+  const ligarAssistente = async () => {
+    try {
+      const atual = await fetchApi("/corretor/assistente");
+      const prefs = atual.ok ? await atual.json() : { avisos: true, carteira_auto: true };
+      const res = await fetchApi("/corretor/assistente", { method: "PUT", body: JSON.stringify({ ...prefs, ativo: true }) });
+      if (!res.ok) throw new ErroApi("Não foi possível ligar o assistente agora.");
+      await reanalisar();
+    } catch (e) {
+      if (!onAuthError(e)) setErroAnalise(e instanceof ErroApi ? e.message : "Falha de conexão.");
     }
   };
 
@@ -237,7 +309,7 @@ export default function Conversas({
       setDetalhesAberto(true);
       setAbaAt("info");
       if (!selAt?.resumo && !(detalheAt?.analise as { resumo?: string } | null)?.resumo) reanalisar();
-      return;
+      return;  // já analisado: o resumo está no painel (com "Reanalisar" para atualizar)
     }
     setDetalhesAberto(true);
     setAba("info");
@@ -316,9 +388,9 @@ export default function Conversas({
                 <button type="button" onClick={() => setSelId(null)} aria-label="Voltar para as conversas" className="lg:hidden p-2 -ml-2 rounded-lg hover:bg-[var(--hover-solid)]" style={{ color: "var(--text-3)" }}>
                   <ArrowLeft className="w-5 h-5" />
                 </button>
-                <Avatar nome={sel.corretor_nome} id={modoAt ? null : sel.corretor_id} tamanho={38} />
+                <Avatar nome={selAt?.nome ?? sel.corretor_nome} id={modoAt ? null : sel.corretor_id} fotoUrl={modoAt ? (detalheAt?.foto_url ?? selAt?.foto_url) : null} tamanho={38} />
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-[15px] font-semibold" style={{ color: "var(--text)" }}>{sel.corretor_nome || (modoAt ? sel.telefone_mascarado : "Corretor")}</p>
+                  <p className="truncate text-[15px] font-semibold" style={{ color: "var(--text)" }}>{(modoAt ? selAt?.nome : null) || sel.corretor_nome || (modoAt ? sel.telefone_mascarado : "Corretor")}</p>
                   <p className="truncate text-xs" style={{ color: "var(--text-3)" }}>
                     WhatsApp · {sel.telefone_mascarado}
                     {!modoAt && sel.corretor_status !== "active" && <span className="ml-2 uppercase" style={{ color: "var(--warn)" }}>{sel.corretor_status}</span>}
@@ -367,7 +439,12 @@ export default function Conversas({
                 {modoAt ? (
                   <>
                     {info && <p role="status" className="px-4 pt-3 text-xs" style={{ color: "var(--accent-text)" }}>{info}</p>}
-                    <CompositorAtendimento sugestao={((detalheAt?.analise as { sugestao_resposta?: string | null } | null)?.sugestao_resposta) || null} onAcao={setAcao} erro={erroEnvio} />
+                    <CompositorAtendimento
+                      onSugerir={sugerir} gerando={gerando} jaSugeriu={jaSugeriu} temMensagens={mensagens.length > 0}
+                      texto={texto} onTexto={setTexto} onEnviar={enviarAoCliente} enviando={enviando} semWhatsapp={online === false}
+                      onConectar={() => onIr("configuracoes")} onAcao={(a) => setAcao(a)} erro={erroEnvio}
+                      nomeCliente={sel.corretor_nome || sel.telefone_mascarado || "o cliente"}
+                    />
                   </>
                 ) : (
                 <CompositorConversa modo={modo} onModo={(m) => { setModo(m); setErroEnvio(null); }} texto={texto} onTexto={setTexto} onEnviar={enviar} enviando={enviando} semWhatsapp={online === false} erro={erroEnvio} onAcao={setAcao} somenteAcoes={ehCorretor} />
@@ -386,6 +463,8 @@ export default function Conversas({
                 <PainelAtendimento
                   item={selAt} detalhe={detalheAt} aba={abaAt} onAba={setAbaAt} onFechar={() => setDetalhesAberto(false)} onIr={onIr}
                   onAbrirCliente={atendimentos!.onAbrirCliente} onReanalisar={reanalisar} reanalisando={reanalisando} onAuthError={onAuthError}
+                  erroAnalise={erroAnalise} onLigarAssistente={ligarAssistente}
+                  onAlterou={(patch) => { setAjustes((a) => ({ ...a, [selAt.id]: { ...(a[selAt.id] ?? {}), ...patch } })); onRecarregar(); }}
                 />
               ) : (
               <PainelDetalhes
@@ -411,18 +490,17 @@ export default function Conversas({
         <AcoesRapidas
           corretorId={modoAt ? atendimentos!.meuId : sel.corretor_id}
           corretorNome={modoAt ? "você" : sel.corretor_nome || "o corretor"}
-          mensagemInicial={modoAt ? `Para ${sel.corretor_nome || "o cliente"}:` : undefined}
+          {...(modoAt ? {
+            base: `/corretor/atendimentos/${sel.corretor_id}/acoes-rapidas`,
+            tipos: ["imoveis" as const],
+            destino: sel.corretor_nome || sel.telefone_mascarado || "o cliente",
+          } : {})}
           tipoInicial={acao}
           onFechar={() => setAcao(null)}
           onAuthError={onAuthError}
           onEnviado={(novas, falhas) => {
-            if (modoAt) {
-              // o material chegou ao WhatsApp do corretor (Chat do Acessor), não a esta conversa
-              setInfo(falhas ? `${falhas} ${falhas === 1 ? "mensagem não foi entregue" : "mensagens não foram entregues"} ao seu WhatsApp.` : "Enviado ao seu WhatsApp: é só encaminhar ao cliente.");
-              return;
-            }
             forcarFim.current = true;
-            setMensagens((m) => [...m, ...novas]);
+            setMensagens((m) => [...m, ...(modoAt ? (novas as unknown as MensagemAt[]).map(mensagemDoAtendimento) : novas)]);
             setVersao((v) => v + 1);
             onRecarregar();
             if (falhas) setErroEnvio(`${falhas} ${falhas === 1 ? "mensagem não foi entregue" : "mensagens não foram entregues"}. As demais foram enviadas.`);
