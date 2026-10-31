@@ -316,3 +316,16 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .assist-beam::before, .assist-beam::after { animation: none; }
 }
+
+/* Tela de entrada: vidro verde com a marca acesa e partículas que flutuam */
+.entrada-vidro {
+  background: linear-gradient(155deg, rgb(120 235 180 / .22), rgb(40 110 80 / .10) 55%, rgb(120 235 180 / .12));
+  border: 1px solid rgb(143 233 190 / .55);
+  box-shadow: inset 0 0 30px rgb(143 233 190 / .22), 0 0 46px rgb(80 210 150 / .35), 0 0 120px rgb(60 180 130 / .25);
+  backdrop-filter: blur(6px);
+  animation: entrada-respira 4.8s ease-in-out infinite;
+}
+.entrada-particula { opacity: 0; animation: entrada-sobe linear infinite; }
+@keyframes entrada-respira { 0%, 100% { box-shadow: inset 0 0 30px rgb(143 233 190 / .22), 0 0 46px rgb(80 210 150 / .35), 0 0 120px rgb(60 180 130 / .25); } 50% { box-shadow: inset 0 0 38px rgb(143 233 190 / .34), 0 0 64px rgb(80 210 150 / .5), 0 0 150px rgb(60 180 130 / .35); } }
+@keyframes entrada-sobe { 0% { opacity: 0; transform: translateY(18px); } 25% { opacity: .9; } 100% { opacity: 0; transform: translateY(-46px); } }
+@media (prefers-reduced-motion: reduce) { .entrada-vidro, .entrada-particula { animation: none; } .entrada-particula { opacity: .5; } }

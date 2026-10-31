@@ -1,8 +1,8 @@
 "use client";
 
 import React, { useState } from "react";
-import { Lock, Mail, Phone, Building, ArrowRight, KeyRound } from "lucide-react";
-import { MarcaVertical } from "@/components/marca/Marca";
+import { Lock, Mail, Phone, Building, ArrowRight, KeyRound, Eye, EyeOff } from "lucide-react";
+import { MarcaHorizontal } from "@/components/marca/Marca";
 import { TelaDeEntrada } from "@/components/tema/tema";
 import { API_BASE, setToken } from "@/lib/api";
 
@@ -12,11 +12,13 @@ interface Props {
   mode: LoginMode;
   onSuccess: (role: string) => void;
   compact?: boolean;
-  /** Conteúdo acima do cartão (ex.: seletor de perfil da página /login). */
-  topo?: React.ReactNode;
+  /** Perfis para o seletor em pílula do topo do formulário (página /login); sem isso o seletor não aparece. */
+  perfis?: { id: LoginMode; rotulo: string }[];
+  onPerfil?: (m: LoginMode) => void;
 }
 
-export default function LoginForm({ mode, onSuccess, compact, topo }: Props) {
+export default function LoginForm({ mode, onSuccess, compact, perfis, onPerfil }: Props) {
+  const [verSenha, setVerSenha] = useState(false);
   const [email, setEmail] = useState("");
   const [senha, setSenha] = useState("");
   const [telefone, setTelefone] = useState("");
@@ -85,84 +87,100 @@ export default function LoginForm({ mode, onSuccess, compact, topo }: Props) {
   };
 
   const titles: Record<LoginMode, string> = {
-    developer: "Painel do Desenvolvedor",
-    admin: "Portal da Imobiliária",
-    corretor: "Portal do Corretor",
+    developer: "Painel do desenvolvedor",
+    admin: "Bem-vindo(a) de volta!",
+    corretor: "Bem-vindo(a) de volta!",
   };
   const subtitulos: Record<LoginMode, string> = {
-    developer: "Entre com a senha de desenvolvedor.",
-    admin: "Entre com o e-mail e a senha da sua imobiliária.",
+    developer: "Entre com a senha de desenvolvedor para gerenciar a plataforma.",
+    admin: "Estamos felizes em ter você conosco novamente. Entre com o e-mail e a senha da sua imobiliária.",
     corretor: codigoEnviado ? "Digite o código que enviamos ao seu WhatsApp." : "Receba um código no WhatsApp cadastrado para entrar.",
   };
 
-  const campo = "w-full h-12 pl-11 pr-4 rounded-2xl text-[15px] border outline-none transition-shadow focus:ring-4 focus:ring-[color:var(--accent-soft)] disabled:opacity-60";
-  const icone = "w-[18px] h-[18px] absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none";
-  const rotulo = "block text-[13px] font-medium mb-1.5";
+  const campo = "w-full h-[52px] pl-12 pr-5 rounded-full text-[15px] border outline-none transition-shadow placeholder:text-[var(--text-4)] focus:ring-4 focus:ring-[color:var(--accent-soft)] focus:border-[var(--accent)] disabled:opacity-60";
+  const estiloCampo = { background: "#ffffff", borderColor: "var(--line-2)", color: "var(--text)" } as const;
+  const icone = "w-[18px] h-[18px] absolute left-[18px] top-1/2 -translate-y-1/2 pointer-events-none";
+  const rotulo = "block text-[13px] font-medium mb-1.5 pl-1";
 
-  const cartao = (
-    <div
-      className={`w-full max-w-[420px] rounded-3xl p-8 sm:p-10 space-y-7 ${compact ? "" : ""}`}
-      style={{ background: "var(--card)", border: "1px solid var(--line)", boxShadow: "var(--sombra-funda)" }}
-    >
-      <div className="flex flex-col items-center gap-4 text-center">
-        <MarcaVertical animada className="w-44 h-auto" alt="Acessor Imobi" />
-        <div className="space-y-1.5">
-          <h1 className="text-[22px] font-semibold tracking-tight" style={{ color: "var(--text)" }}>{titles[mode]}</h1>
-          <p className="text-sm leading-relaxed" style={{ color: "var(--text-3)" }}>{subtitulos[mode]}</p>
-        </div>
+  const senhaCampo = (id: string, valor: string, mudar: (v: string) => void, rot: string) => (
+    <div>
+      <label htmlFor={id} className={rotulo} style={{ color: "var(--text-3)" }}>{rot}</label>
+      <div className="relative">
+        <Lock className={icone} style={{ color: "var(--text-4)" }} />
+        <input
+          id={id} type={verSenha ? "text" : "password"} required value={valor} onChange={(e) => mudar(e.target.value)}
+          placeholder="Digite sua senha" autoComplete="current-password" className={`${campo} pr-12`} style={estiloCampo}
+        />
+        <button
+          type="button" onClick={() => setVerSenha((v) => !v)} aria-label={verSenha ? "Ocultar senha" : "Mostrar senha"}
+          className="absolute right-4 top-1/2 -translate-y-1/2 p-1 rounded-full hover:opacity-80" style={{ color: "var(--text-3)" }}
+        >
+          {verSenha ? <EyeOff className="w-[18px] h-[18px]" /> : <Eye className="w-[18px] h-[18px]" />}
+        </button>
+      </div>
+    </div>
+  );
+
+  const conteudo = (
+    <div className="w-full space-y-7">
+      <MarcaHorizontal animada className="h-12 w-auto" alt="Acessor Imobi" />
+
+      <div className="space-y-2">
+        <h1 className="text-[34px] sm:text-[38px] leading-[1.1] font-bold tracking-tight" style={{ color: "var(--text)" }}>{titles[mode]}</h1>
+        <p className="text-[15.5px] leading-relaxed" style={{ color: "var(--text-3)" }}>{subtitulos[mode]}</p>
       </div>
 
-      <form onSubmit={submit} className="space-y-5">
-        {mode === "developer" && (
-          <div>
-            <label htmlFor="dev-senha" className={rotulo} style={{ color: "var(--text-3)" }}>Senha de desenvolvedor</label>
-            <div className="relative">
-              <Lock className={icone} style={{ color: "var(--text-4)" }} />
-              <input id="dev-senha" type="password" required value={senha} onChange={(e) => setSenha(e.target.value)} placeholder="••••••••" autoComplete="current-password" className={campo} />
-            </div>
-          </div>
-        )}
+      {perfis && onPerfil && (
+        <div className="grid p-1 rounded-full" role="tablist" aria-label="Perfil de acesso" style={{ gridTemplateColumns: `repeat(${perfis.length}, 1fr)`, background: "var(--card-2)", border: "1px solid var(--line)" }}>
+          {perfis.map((p) => (
+            <button
+              key={p.id} type="button" role="tab" aria-selected={mode === p.id} onClick={() => onPerfil(p.id)}
+              className="h-11 rounded-full text-[14px] font-medium transition-all"
+              style={mode === p.id ? { background: "#ffffff", color: "var(--text)", boxShadow: "var(--sombra)" } : { color: "var(--text-3)" }}
+            >
+              {p.rotulo}
+            </button>
+          ))}
+        </div>
+      )}
+
+      <form onSubmit={submit} className="space-y-4">
+        {mode === "developer" && senhaCampo("dev-senha", senha, setSenha, "Senha de desenvolvedor")}
 
         {mode === "admin" && (
           <>
             <div>
-              <label htmlFor="adm-slug" className={rotulo} style={{ color: "var(--text-3)" }}>Slug da imobiliária</label>
+              <label htmlFor="adm-slug" className={rotulo} style={{ color: "var(--text-3)" }}>Identificador da imobiliária</label>
               <div className="relative">
                 <Building className={icone} style={{ color: "var(--text-4)" }} />
-                <input id="adm-slug" type="text" required value={slug} onChange={(e) => setSlug(e.target.value.toLowerCase().trim())} placeholder="alvorada" className={`${campo} font-mono`} />
+                <input id="adm-slug" type="text" required value={slug} onChange={(e) => setSlug(e.target.value.toLowerCase().trim())} placeholder="Ex.: alvorada" className={`${campo} font-mono`} style={estiloCampo} />
               </div>
             </div>
             <div>
               <label htmlFor="adm-email" className={rotulo} style={{ color: "var(--text-3)" }}>E-mail</label>
               <div className="relative">
                 <Mail className={icone} style={{ color: "var(--text-4)" }} />
-                <input id="adm-email" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="admin@imobiliaria.com.br" autoComplete="username" className={campo} />
+                <input id="adm-email" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Digite seu e-mail" autoComplete="username" className={campo} style={estiloCampo} />
               </div>
             </div>
-            <div>
-              <label htmlFor="adm-senha" className={rotulo} style={{ color: "var(--text-3)" }}>Senha</label>
-              <div className="relative">
-                <Lock className={icone} style={{ color: "var(--text-4)" }} />
-                <input id="adm-senha" type="password" required value={senha} onChange={(e) => setSenha(e.target.value)} autoComplete="current-password" className={campo} />
-              </div>
-            </div>
+            {senhaCampo("adm-senha", senha, setSenha, "Senha")}
           </>
         )}
 
         {mode === "corretor" && (
           <>
             <div>
-              <label htmlFor="cor-slug" className={rotulo} style={{ color: "var(--text-3)" }}>Slug da imobiliária</label>
+              <label htmlFor="cor-slug" className={rotulo} style={{ color: "var(--text-3)" }}>Identificador da imobiliária</label>
               <div className="relative">
                 <Building className={icone} style={{ color: "var(--text-4)" }} />
-                <input id="cor-slug" type="text" required value={slug} onChange={(e) => setSlug(e.target.value.toLowerCase().trim())} placeholder="alvorada" className={`${campo} font-mono`} />
+                <input id="cor-slug" type="text" required value={slug} onChange={(e) => setSlug(e.target.value.toLowerCase().trim())} placeholder="Ex.: alvorada" className={`${campo} font-mono`} style={estiloCampo} />
               </div>
             </div>
             <div>
               <label htmlFor="cor-tel" className={rotulo} style={{ color: "var(--text-3)" }}>WhatsApp cadastrado</label>
               <div className="relative">
                 <Phone className={icone} style={{ color: "var(--text-4)" }} />
-                <input id="cor-tel" type="tel" required value={telefone} onChange={(e) => setTelefone(e.target.value)} placeholder="(31) 99999-8888" disabled={codigoEnviado} className={campo} />
+                <input id="cor-tel" type="tel" required value={telefone} onChange={(e) => setTelefone(e.target.value)} placeholder="(31) 99999-8888" disabled={codigoEnviado} className={campo} style={estiloCampo} />
               </div>
             </div>
             {codigoEnviado && (
@@ -173,14 +191,14 @@ export default function LoginForm({ mode, onSuccess, compact, topo }: Props) {
                   <input
                     id="codigo" inputMode="numeric" autoComplete="one-time-code" required autoFocus maxLength={6} value={codigo}
                     onChange={(e) => setCodigo(e.target.value.replace(/\D/g, ""))} placeholder="000000"
-                    className={`${campo} tracking-[0.3em] font-mono`}
+                    className={`${campo} tracking-[0.3em] font-mono`} style={estiloCampo}
                   />
                 </div>
                 <button
                   type="button"
                   onClick={() => { setCodigoEnviado(false); setCodigo(""); setAviso(null); }}
-                  className="mt-2.5 text-[13px] underline underline-offset-2 hover:opacity-80"
-                  style={{ color: "var(--text-3)" }}
+                  className="mt-2.5 ml-1 text-[13px] font-medium hover:opacity-80"
+                  style={{ color: "var(--accent-text)" }}
                 >
                   Trocar número ou pedir outro código
                 </button>
@@ -190,11 +208,11 @@ export default function LoginForm({ mode, onSuccess, compact, topo }: Props) {
         )}
 
         {aviso && !error && (
-          <div role="status" className="px-3.5 py-3 rounded-2xl text-[13px] leading-relaxed" style={{ background: "var(--accent-soft)", color: "var(--accent-text)", border: "1px solid color-mix(in srgb, var(--accent) 25%, transparent)" }}>{aviso}</div>
+          <div role="status" className="px-4 py-3 rounded-2xl text-[13px] leading-relaxed" style={{ background: "var(--accent-soft)", color: "var(--accent-text)", border: "1px solid color-mix(in srgb, var(--accent) 25%, transparent)" }}>{aviso}</div>
         )}
 
         {error && (
-          <div role="alert" className="px-3.5 py-3 rounded-2xl text-[13px] leading-relaxed" style={{ background: "color-mix(in srgb, var(--danger) 10%, transparent)", color: "var(--danger)", border: "1px solid color-mix(in srgb, var(--danger) 28%, transparent)" }}>
+          <div role="alert" className="px-4 py-3 rounded-2xl text-[13px] leading-relaxed" style={{ background: "color-mix(in srgb, var(--danger) 10%, transparent)", color: "var(--danger)", border: "1px solid color-mix(in srgb, var(--danger) 28%, transparent)" }}>
             {error}
           </div>
         )}
@@ -202,8 +220,8 @@ export default function LoginForm({ mode, onSuccess, compact, topo }: Props) {
         <button
           type="submit"
           disabled={loading}
-          className="w-full h-12 rounded-full text-[15px] font-semibold flex items-center justify-center gap-2 transition-opacity hover:opacity-90 disabled:opacity-60 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[color:var(--accent-soft)]"
-          style={{ background: "var(--chip)", color: "var(--chip-text)" }}
+          className="w-full h-[54px] rounded-full text-[16px] font-semibold flex items-center justify-center gap-2 transition-[opacity,transform] hover:opacity-95 active:scale-[0.99] disabled:opacity-60 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[color:var(--accent-soft)]"
+          style={{ background: "var(--accent-strong)", color: "#ffffff", boxShadow: "0 12px 28px -12px color-mix(in srgb, var(--accent-strong) 75%, transparent)" }}
         >
           {loading ? "Aguarde..." : mode === "corretor" && !codigoEnviado ? "Receber código no WhatsApp" : "Entrar"}
           {!loading && <ArrowRight className="w-4 h-4" />}
@@ -212,11 +230,6 @@ export default function LoginForm({ mode, onSuccess, compact, topo }: Props) {
     </div>
   );
 
-  if (compact) return <div className="w-full flex justify-center">{cartao}</div>;
-  return (
-    <TelaDeEntrada>
-      {topo}
-      {cartao}
-    </TelaDeEntrada>
-  );
+  if (compact) return <div className="app-tema app-claro w-full">{conteudo}</div>;
+  return <TelaDeEntrada>{conteudo}</TelaDeEntrada>;
 }
