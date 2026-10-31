@@ -73,6 +73,11 @@ async def atualizar_dados(session, tenant_id: UUID, corretor_id: UUID, nome: Opt
 
 async def salvar_assistente(session, tenant_id: UUID, corretor_id: UUID, config: Dict[str, Any]) -> Dict[str, bool]:
     limpo = {k: bool(config.get(k, v)) for k, v in ASSISTENTE_PADRAO.items()}
+    antes = (await session.execute(
+        text("SELECT assistente_config FROM corretores WHERE id = :id AND tenant_id = :tid"), {"id": str(corretor_id), "tid": str(tenant_id)})).scalar()
+    if limpo["ativo"] and not config_assistente(antes)["ativo"]:
+        await session.execute(
+            text("UPDATE whatsapp_sessions SET historico_importado_ate = NULL WHERE corretor_id = :id AND tipo = 'corretor'"), {"id": str(corretor_id)})
     await session.execute(
         text("UPDATE corretores SET assistente_config = CAST(:c AS jsonb) WHERE id = :id AND tenant_id = :tid"),
         {"c": json.dumps(limpo), "id": str(corretor_id), "tid": str(tenant_id)},

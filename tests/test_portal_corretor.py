@@ -197,3 +197,25 @@ async def test_notas_internas_da_equipe_nao_chegam_ao_corretor(cenario, cliente)
     finally:
         async with get_admin_session() as s:
             await s.execute(text("DELETE FROM conversa_notas WHERE corretor_id = :c AND texto = 'nota secreta da equipe'"), {"c": a})
+
+
+async def test_diagnostico_e_religar_assistente_reabre_a_leitura(cenario, cliente):
+    tid, ids = cenario
+    a = ids["a"]["corretor"]
+    h = _auth(tid, a)
+    async with get_admin_session() as s:
+        await s.execute(text("UPDATE corretores SET assistente_config = CAST('{\"ativo\": false}' AS jsonb) WHERE id = :c"), {"c": a})
+        await s.execute(text("DELETE FROM whatsapp_sessions WHERE corretor_id = :c"), {"c": a})
+        await s.execute(text("""INSERT INTO whatsapp_sessions (tenant_id, corretor_id, tipo, instance_id, numero, status, historico_importado_ate)
+                                VALUES (:t, :c, 'corretor', :i, '+559900000001', 'connected', NOW())"""), {"t": tid, "c": a, "i": f"teste_{a.hex[:12]}"})
+    try:
+        d = (await cliente.get("/corretor/atendimentos/diagnostico", headers=h)).json()
+        assert d["whatsapp"] == "connected" and d["assistente_ativo"] is False and d["ultima_leitura_em"]
+        assert (await cliente.post("/corretor/atendimentos/sincronizar", headers=h)).status_code == 409  # desligado
+        r = await cliente.put("/corretor/assistente", headers=h, json={"ativo": True, "avisos": True, "carteira_auto": True})
+        assert r.status_code == 200
+        d = (await cliente.get("/corretor/atendimentos/diagnostico", headers=h)).json()
+        assert d["assistente_ativo"] is True and d["ultima_leitura_em"] is None  # vai reler os últimos dias
+    finally:
+        async with get_admin_session() as s:
+            await s.execute(text("DELETE FROM whatsapp_sessions WHERE corretor_id = :c"), {"c": a})

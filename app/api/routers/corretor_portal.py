@@ -174,11 +174,64 @@ async def assistente_config(corretor=Depends(require_corretor)):
 @router.put("/assistente", response_model=AssistenteConfig, summary="Atualiza as preferências do assistente")
 async def atualizar_assistente(body: AssistenteConfig, corretor=Depends(require_corretor)):
     async with get_session(corretor.tenant_id) as session:
+        antes = config_assistente((await session.execute(
+            text("SELECT assistente_config FROM corretores WHERE id = :cid"), {"cid": str(corretor.corretor_id)})).scalar())
+        if body.ativo and not antes["ativo"]:
+            # Ao religar, as conversas dos últimos dias são lidas de novo (enquanto desligado nada foi guardado).
+            await session.execute(
+                text("UPDATE whatsapp_sessions SET historico_importado_ate = NULL WHERE corretor_id = :cid AND tipo = 'corretor'"),
+                {"cid": str(corretor.corretor_id)})
         await session.execute(
             text("UPDATE corretores SET assistente_config = CAST(:cfg AS jsonb) WHERE id = :cid"),
             {"cfg": json.dumps(body.model_dump()), "cid": str(corretor.corretor_id)},
         )
     return body
+
+
+@router.get("/atendimentos/diagnostico", summary="Por que a lista de atendimentos está vazia: WhatsApp, assistente e última leitura")
+async def diagnostico_atendimentos(corretor=Depends(require_corretor)):
+    async with get_session(corretor.tenant_id) as session:
+        cfg = config_assistente((await session.execute(
+            text("SELECT assistente_config FROM corretores WHERE id = :cid"), {"cid": str(corretor.corretor_id)})).scalar())
+        ws = (await session.execute(
+            text("SELECT status, numero, last_seen, historico_importado_ate FROM whatsapp_sessions WHERE corretor_id = :cid AND tipo = 'corretor'"),
+            {"cid": str(corretor.corretor_id)})).first()
+        total = (await session.execute(
+            text("SELECT COUNT(*) FROM atendimentos WHERE corretor_id = :cid"), {"cid": str(corretor.corretor_id)})).scalar() or 0
+    iso = lambda v: v.isoformat() if v else None  # noqa: E731
+    return {
+        "whatsapp": ws.status if ws else "disconnected", "numero": ws.numero if ws else None,
+        "assistente_ativo": cfg["ativo"], "ultima_leitura_em": iso(ws.historico_importado_ate) if ws else None,
+        "atendimentos": int(total), "dias_lidos": 3,
+    }
+
+
+@router.post("/atendimentos/sincronizar", summary="Lê agora as conversas recentes do WhatsApp pessoal")
+async def sincronizar_atendimentos(corretor=Depends(require_corretor)):
+    from datetime import datetime, timedelta, timezone
+
+    from app.domain.atendimento.historico import DIAS_HISTORICO, importar_historico
+
+    async with get_session(corretor.tenant_id) as session:
+        cfg = config_assistente((await session.execute(
+            text("SELECT assistente_config FROM corretores WHERE id = :cid"), {"cid": str(corretor.corretor_id)})).scalar())
+        ws = (await session.execute(
+            text("SELECT instance_id, status FROM whatsapp_sessions WHERE corretor_id = :cid AND tipo = 'corretor'"),
+            {"cid": str(corretor.corretor_id)})).first()
+    if not cfg["ativo"]:
+        raise HTTPException(status_code=409, detail="O assistente está desligado. Ligue-o em Configurações para ele ler suas conversas.")
+    if not ws or ws.status != "connected":
+        raise HTTPException(status_code=409, detail="Seu WhatsApp não está conectado.")
+    inicio = datetime.now(timezone.utc)
+    try:
+        importadas = await importar_historico(corretor.tenant_id, corretor.corretor_id, ws.instance_id, inicio - timedelta(days=DIAS_HISTORICO))
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail="Não consegui falar com o WhatsApp agora. Tente de novo em instantes.") from e
+    async with get_session(corretor.tenant_id) as session:
+        await session.execute(
+            text("UPDATE whatsapp_sessions SET historico_importado_ate = :ate WHERE corretor_id = :cid AND tipo = 'corretor'"),
+            {"ate": inicio, "cid": str(corretor.corretor_id)})
+    return {"importadas": importadas}
 
 
 @router.get("/atendimentos", summary="Atendimentos recentes observados no WhatsApp pessoal")

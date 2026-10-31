@@ -87,7 +87,7 @@ export default function ListaConversas({
   filtros?: { id: Filtro; rotulo: string }[];
   /** Conteúdo logo abaixo dos filtros (ex.: alternador de conversas não imobiliárias). */
   extra?: React.ReactNode;
-  textoVazio?: { titulo: string; detalhe: string };
+  textoVazio?: { titulo: string; detalhe: string; acao?: { rotulo: string; onClick: () => void; ocupado?: boolean } };
   /** Atendimentos: o id da linha é do atendimento, não de um corretor, então o avatar é só as iniciais. */
   semAvatarDoCorretor?: boolean;
 }) {
@@ -180,6 +180,11 @@ export default function ListaConversas({
             <p className="mt-1 text-xs" style={{ color: "var(--text-3)" }}>
               {conversas.length === 0 ? (textoVazio?.detalhe ?? "Quando um corretor falar com o agente, a conversa aparece aqui.") : "Tente outro nome, outra palavra ou outro filtro."}
             </p>
+            {conversas.length === 0 && textoVazio?.acao && (
+              <button type="button" onClick={textoVazio.acao.onClick} disabled={textoVazio.acao.ocupado} className="mt-4 px-4 py-2 rounded-full text-sm font-medium disabled:opacity-60" style={{ background: "var(--chip)", color: "var(--chip-text)" }}>
+                {textoVazio.acao.ocupado ? "Aguarde…" : textoVazio.acao.rotulo}
+              </button>
+            )}
           </div>
         ) : (
           <ul>

@@ -83,6 +83,7 @@ async def importar_pendentes() -> None:
                 FROM whatsapp_sessions ws
                 JOIN corretores c ON c.id = ws.corretor_id AND c.status = 'active'
                 WHERE ws.tipo = 'corretor' AND ws.status = 'connected'
+                  AND COALESCE((c.assistente_config->>'ativo')::boolean, TRUE)  -- desligado: nada é lido e o marco não avança
             """)
         )
         sessoes = rows.fetchall()

@@ -26,6 +26,8 @@ export interface FonteAtendimentos {
   /** Id do corretor logado: as ações rápidas mandam o material para o WhatsApp dele. */
   meuId: string;
   onAbrirCliente?: (leadId: string) => void;
+  /** Texto e ação da lista vazia (explica o motivo: assistente desligado, WhatsApp desconectado, nada lido ainda). */
+  vazio?: { titulo: string; detalhe: string; acao?: { rotulo: string; onClick: () => void; ocupado?: boolean } };
 }
 
 const FILTROS_ATENDIMENTO: { id: Filtro; rotulo: string }[] = [
@@ -285,7 +287,7 @@ export default function Conversas({
               rotuloOnline: { on: "WhatsApp pessoal conectado", off: "WhatsApp pessoal desconectado" },
               filtros: FILTROS_ATENDIMENTO,
               semAvatarDoCorretor: true,
-              textoVazio: { titulo: "Nenhum atendimento ainda", detalhe: "Quando você conversar com clientes no seu WhatsApp, o Acessor acompanha e a conversa aparece aqui. Conecte seu WhatsApp em Configurações." },
+              textoVazio: atendimentos!.vazio ?? { titulo: "Nenhum atendimento ainda", detalhe: "Quando você conversar com clientes no seu WhatsApp, o Acessor acompanha e a conversa aparece aqui. Conecte seu WhatsApp em Configurações." },
               extra: (
                 <label className="mt-3 flex items-center gap-2 text-xs cursor-pointer" style={{ color: "var(--text-3)" }}>
                   <input type="checkbox" checked={atendimentos!.todos} onChange={(e) => atendimentos!.onTodos(e.target.checked)} />
