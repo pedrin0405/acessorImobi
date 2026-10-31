@@ -4,6 +4,12 @@ import React, { useState } from "react";
 import { useRouter } from "next/navigation";
 import LoginForm, { LoginMode } from "@/components/LoginForm";
 
+const PERFIS: { id: LoginMode; rotulo: string }[] = [
+  { id: "corretor", rotulo: "Corretor" },
+  { id: "admin", rotulo: "Imobiliária" },
+  { id: "developer", rotulo: "Dev" },
+];
+
 export default function LoginPage() {
   const router = useRouter();
   const [mode, setMode] = useState<LoginMode>("corretor");
@@ -15,32 +21,27 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center p-4 gap-6">
-      <div className="flex bg-slate-800 border border-slate-700 p-1 rounded-xl text-xs font-medium">
-        {(["corretor", "admin", "developer"] as LoginMode[]).map((m) => (
-          <button
-            key={m}
-            type="button"
-            onClick={() => setMode(m)}
-            className={`px-4 py-1.5 rounded-lg transition-all ${
-              mode === m
-                ? m === "developer"
-                  ? "bg-sky-600 text-white"
-                  : m === "admin"
-                  ? "bg-emerald-600 text-white"
-                  : "bg-amber-600 text-white"
-                : "text-slate-400"
-            }`}
-          >
-            {m === "developer" ? "Dev" : m === "admin" ? "Imobiliária" : "Corretor"}
-          </button>
-        ))}
-      </div>
-
-      <LoginForm
-        mode={mode}
-        onSuccess={(role) => router.push(redirect[role] || "/")}
-      />
-    </div>
+    <LoginForm
+      key={mode}
+      mode={mode}
+      onSuccess={(role) => router.push(redirect[role] || "/")}
+      topo={
+        <div className="inline-flex p-1 rounded-full gap-1" role="tablist" aria-label="Perfil de acesso" style={{ background: "var(--card)", border: "1px solid var(--line)", boxShadow: "var(--sombra)" }}>
+          {PERFIS.map((p) => (
+            <button
+              key={p.id}
+              type="button"
+              role="tab"
+              aria-selected={mode === p.id}
+              onClick={() => setMode(p.id)}
+              className="h-9 px-5 rounded-full text-[13px] font-medium transition-colors"
+              style={mode === p.id ? { background: "var(--chip)", color: "var(--chip-text)" } : { color: "var(--text-3)" }}
+            >
+              {p.rotulo}
+            </button>
+          ))}
+        </div>
+      }
+    />
   );
 }

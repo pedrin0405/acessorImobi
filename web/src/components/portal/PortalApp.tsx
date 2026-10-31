@@ -802,7 +802,7 @@ export default function PortalApp({ papel }: { papel: Papel }) {
                               : "bg-rose-50 text-rose-700 border border-rose-200"
                           }`}
                         >
-                          {c.status.toUpperCase()}
+                          {({ active: "Ativo", pending: "Pendente", rejected: "Recusado", blocked: "Bloqueado" } as Record<string, string>)[c.status] ?? c.status}
                         </span>
                       </div>
                       <div className="text-xs text-slate-500 mt-1 space-x-3">

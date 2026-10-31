@@ -56,29 +56,46 @@ body {
 }
 
 .app-tema.app-claro {
-  --bg: #f3f5f5;
-  --sidebar: #eceff0;
-  --card: #ffffff;
-  --card-2: #f7f9f9;
-  --input: #f3f5f5;
-  --hover-solid: #eef2f2;
-  --line: #e3e8e8;
-  --line-2: #d3dada;
-  --text: #0e1416;
-  --text-2: #2c3739;
-  --text-3: #5f6b6d;
-  --text-4: #8a9597;
+  /* Tema claro no desenho do app de referência: moldura cinza-azulada, painel principal mais claro e cartões quase brancos,
+     separados por fios finos e sombras muito suaves em vez de caixas pesadas. */
+  --shell: #f1f4f4;
+  --bg: #f6f9f9;
+  --sidebar: #f1f4f4;
+  --card: #fcfdfd;
+  --card-2: #f0f4f4;
+  --input: #fcfdfd;
+  --hover-solid: #e8eef0;
+  --line: #e5ebec;
+  --line-2: #d3dcdf;
+  --text: #111a1f;
+  --text-2: #34424a;
+  --text-3: #55646b;
+  --text-4: #647279;
   --accent: #2f8460;
   --accent-strong: #2f7a58;
-  --accent-soft: #e6f3ed;
+  --accent-soft: #e4f2ec;
   --accent-text: #23694b;
-  --chip: #0e1416;
+  --chip: #111a1f;
   --chip-text: #ffffff;
   --danger: #b4503f;
   --warn: #9a6b17;
   --info: #2f6f88;
+  --nav-ativo: #fcfdfd;
+  --sombra: 0 1px 2px rgb(17 26 31 / 0.04), 0 6px 18px rgb(17 26 31 / 0.05);
+  --sombra-funda: 0 2px 4px rgb(17 26 31 / 0.04), 0 14px 36px rgb(17 26 31 / 0.08);
   color-scheme: light;
 }
+
+/* Moldura (menu e barra superior) e painel principal arredondado, como no app de referência */
+.app-tema { --shell: var(--bg); --nav-ativo: var(--card-2); --sombra: none; --sombra-funda: none; }
+.app-tema.app-claro { --shell: #f1f4f4; --nav-ativo: #fcfdfd; }
+.shell-painel { background: var(--bg); }
+.app-claro .shell-painel {
+  border-top-left-radius: 28px;
+  border-top: 1px solid var(--line);
+  border-left: 1px solid var(--line);
+}
+@media (max-width: 1023px) { .app-claro .shell-painel { border-top-left-radius: 0; border-left: 0; } }
 
 /* --- Superfícies --- */
 .app-tema .bg-white,
@@ -223,3 +240,22 @@ body {
   .assist-rise, .assist-pop, .assist-fade, .assist-slide-left, .assist-breathe, .assist-orbit,
   .assist-orbit-fast, .assist-glow, .assist-dot, .assist-ring, .assist-caret { animation: none !important; }
 }
+
+/* =============================================================================
+   Tema claro: detalhes de superfície (nada disto vale no escuro)
+   ============================================================================= */
+/* Cartões e painéis com fio fino ganham sombra muito difusa em vez de peso visual */
+.app-claro [style*="background: var(--card);"][style*="border"],
+.app-claro .bg-white.border,
+.app-claro .bg-white.rounded-2xl { box-shadow: var(--sombra); }
+/* Janelas (modais e popups) sobem um degrau */
+.app-claro [role="dialog"] > div[style*="background: var(--card);"] { box-shadow: var(--sombra-funda); }
+/* Títulos de página: maiores e mais firmes (só nas telas de página, não nos painéis de lista) */
+.app-claro main .max-w-6xl h1 { font-size: 1.875rem; line-height: 2.25rem; letter-spacing: -0.02em; }
+/* Kanban: a coluna é um fundo suave e o cartão fica branco, com sombra */
+.app-claro [aria-label^="Etapa "] { background: var(--card-2) !important; box-shadow: none !important; }
+.app-claro [aria-label^="Etapa "]:not([style*="dashed"]) { border-color: transparent !important; }
+.app-claro [aria-label^="Etapa "] [draggable="true"] { background: var(--card) !important; box-shadow: var(--sombra); }
+/* Linhas de tabela e de lista: respiram e destacam no hover */
+.app-claro table tbody tr:hover { background: var(--hover-solid); }
+.app-claro ::selection { background: color-mix(in srgb, var(--accent) 22%, transparent); }

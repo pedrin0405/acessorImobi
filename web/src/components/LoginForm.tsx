@@ -3,6 +3,7 @@
 import React, { useState } from "react";
 import { Lock, Mail, Phone, Building, ArrowRight, KeyRound } from "lucide-react";
 import LogoAcessor from "@/components/shell/LogoAcessor";
+import { TelaDeEntrada } from "@/components/tema/tema";
 import { API_BASE, setToken } from "@/lib/api";
 
 export type LoginMode = "developer" | "admin" | "corretor";
@@ -11,9 +12,11 @@ interface Props {
   mode: LoginMode;
   onSuccess: (role: string) => void;
   compact?: boolean;
+  /** Conteúdo acima do cartão (ex.: seletor de perfil da página /login). */
+  topo?: React.ReactNode;
 }
 
-export default function LoginForm({ mode, onSuccess, compact }: Props) {
+export default function LoginForm({ mode, onSuccess, compact, topo }: Props) {
   const [email, setEmail] = useState("");
   const [senha, setSenha] = useState("");
   const [telefone, setTelefone] = useState("");
@@ -86,172 +89,134 @@ export default function LoginForm({ mode, onSuccess, compact }: Props) {
     admin: "Portal da Imobiliária",
     corretor: "Portal do Corretor",
   };
+  const subtitulos: Record<LoginMode, string> = {
+    developer: "Entre com a senha de desenvolvedor.",
+    admin: "Entre com o e-mail e a senha da sua imobiliária.",
+    corretor: codigoEnviado ? "Digite o código que enviamos ao seu WhatsApp." : "Receba um código no WhatsApp cadastrado para entrar.",
+  };
 
-  return (
-    <div className={compact ? "w-full" : "min-h-screen flex items-center justify-center p-4 bg-slate-900"}>
-      <div className={`bg-slate-800 border border-slate-700/60 rounded-3xl p-8 w-full ${compact ? "max-w-md" : "max-w-md shadow-2xl"} space-y-6 text-slate-100`}>
-        <div className="flex flex-col items-center gap-3 text-center">
-          <LogoAcessor className="w-16 h-16" alt="acessorImobi" />
-          <div className="space-y-1">
-            <p className="text-[10.5px] font-semibold uppercase tracking-[0.2em] text-slate-500">acessorImobi</p>
-            <h1 className="text-xl font-bold tracking-tight text-white">{titles[mode]}</h1>
-            <p className="text-sm text-slate-400">Informe suas credenciais para continuar</p>
-          </div>
+  const campo = "w-full h-12 pl-11 pr-4 rounded-2xl text-[15px] border outline-none transition-shadow focus:ring-4 focus:ring-[color:var(--accent-soft)] disabled:opacity-60";
+  const icone = "w-[18px] h-[18px] absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none";
+  const rotulo = "block text-[13px] font-medium mb-1.5";
+
+  const cartao = (
+    <div
+      className={`w-full max-w-[420px] rounded-3xl p-8 sm:p-10 space-y-7 ${compact ? "" : ""}`}
+      style={{ background: "var(--card)", border: "1px solid var(--line)", boxShadow: "var(--sombra-funda)" }}
+    >
+      <div className="flex flex-col items-center gap-4 text-center">
+        <LogoAcessor className="w-16 h-16 rounded-2xl" alt="acessorImobi" />
+        <div className="space-y-1.5">
+          <h1 className="text-[22px] font-semibold tracking-tight" style={{ color: "var(--text)" }}>{titles[mode]}</h1>
+          <p className="text-sm leading-relaxed" style={{ color: "var(--text-3)" }}>{subtitulos[mode]}</p>
         </div>
-
-        <form onSubmit={submit} className="space-y-4">
-          {mode === "developer" && (
-            <div>
-              <label className="block text-xs font-medium text-slate-400 mb-1">Senha de Desenvolvedor</label>
-              <div className="relative">
-                <Lock className="w-4 h-4 text-slate-500 absolute left-3 top-3" />
-                <input
-                  type="password"
-                  required
-                  value={senha}
-                  onChange={(e) => setSenha(e.target.value)}
-                  placeholder="••••••••"
-                  className="w-full pl-9 pr-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-sm focus:outline-none focus:border-sky-500"
-                />
-              </div>
-            </div>
-          )}
-
-          {mode === "admin" && (
-            <>
-              <div>
-                <label className="block text-xs font-medium text-slate-400 mb-1">Slug da Imobiliária</label>
-                <div className="relative">
-                  <Building className="w-4 h-4 text-slate-500 absolute left-3 top-3" />
-                  <input
-                    type="text"
-                    required
-                    value={slug}
-                    onChange={(e) => setSlug(e.target.value.toLowerCase().trim())}
-                    placeholder="alvorada"
-                    className="w-full pl-9 pr-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-sm font-mono focus:outline-none focus:border-emerald-500"
-                  />
-                </div>
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-slate-400 mb-1">E-mail</label>
-                <div className="relative">
-                  <Mail className="w-4 h-4 text-slate-500 absolute left-3 top-3" />
-                  <input
-                    type="email"
-                    required
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    placeholder="admin@imobiliaria.com.br"
-                    className="w-full pl-9 pr-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-sm focus:outline-none focus:border-emerald-500"
-                  />
-                </div>
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-slate-400 mb-1">Senha</label>
-                <div className="relative">
-                  <Lock className="w-4 h-4 text-slate-500 absolute left-3 top-3" />
-                  <input
-                    type="password"
-                    required
-                    value={senha}
-                    onChange={(e) => setSenha(e.target.value)}
-                    className="w-full pl-9 pr-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-sm focus:outline-none focus:border-emerald-500"
-                  />
-                </div>
-              </div>
-            </>
-          )}
-
-          {mode === "corretor" && (
-            <>
-              <div>
-                <label className="block text-xs font-medium text-slate-400 mb-1">Slug da Imobiliária</label>
-                <div className="relative">
-                  <Building className="w-4 h-4 text-slate-500 absolute left-3 top-3" />
-                  <input
-                    type="text"
-                    required
-                    value={slug}
-                    onChange={(e) => setSlug(e.target.value.toLowerCase().trim())}
-                    placeholder="alvorada"
-                    className="w-full pl-9 pr-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-sm font-mono focus:outline-none focus:border-amber-500"
-                  />
-                </div>
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-slate-400 mb-1">WhatsApp cadastrado</label>
-                <div className="relative">
-                  <Phone className="w-4 h-4 text-slate-500 absolute left-3 top-3" />
-                  <input
-                    type="tel"
-                    required
-                    value={telefone}
-                    onChange={(e) => setTelefone(e.target.value)}
-                    placeholder="(31) 99999-8888"
-                    disabled={codigoEnviado}
-                    className="w-full pl-9 pr-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-sm focus:outline-none focus:border-amber-500 disabled:opacity-60"
-                  />
-                </div>
-              </div>
-              {codigoEnviado && (
-                <div>
-                  <label htmlFor="codigo" className="block text-xs font-medium text-slate-400 mb-1">Código recebido no WhatsApp</label>
-                  <div className="relative">
-                    <KeyRound className="w-4 h-4 text-slate-500 absolute left-3 top-3" />
-                    <input
-                      id="codigo"
-                      inputMode="numeric"
-                      autoComplete="one-time-code"
-                      required
-                      autoFocus
-                      maxLength={6}
-                      value={codigo}
-                      onChange={(e) => setCodigo(e.target.value.replace(/\D/g, ""))}
-                      placeholder="000000"
-                      className="w-full pl-9 pr-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-sm tracking-[0.3em] font-mono focus:outline-none focus:border-amber-500"
-                    />
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setCodigoEnviado(false);
-                      setCodigo("");
-                      setAviso(null);
-                    }}
-                    className="mt-2 text-xs text-slate-400 underline hover:text-slate-200"
-                  >
-                    Trocar número ou pedir outro código
-                  </button>
-                </div>
-              )}
-            </>
-          )}
-
-          {aviso && !error && (
-            <div className="p-2.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 text-xs">{aviso}</div>
-          )}
-
-          {error && (
-            <div className="p-2.5 rounded-lg bg-rose-500/10 border border-rose-500/20 text-rose-300 text-xs">
-              {error}
-            </div>
-          )}
-
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full py-2.5 bg-sky-600 hover:bg-sky-500 disabled:opacity-50 text-white font-medium rounded-xl text-sm shadow-lg shadow-sky-600/20 flex items-center justify-center gap-2 transition-all"
-          >
-            {loading
-              ? "Aguarde..."
-              : mode === "corretor" && !codigoEnviado
-                ? "Receber código no WhatsApp"
-                : "Entrar"}{" "}
-            <ArrowRight className="w-4 h-4" />
-          </button>
-        </form>
       </div>
+
+      <form onSubmit={submit} className="space-y-5">
+        {mode === "developer" && (
+          <div>
+            <label htmlFor="dev-senha" className={rotulo} style={{ color: "var(--text-3)" }}>Senha de desenvolvedor</label>
+            <div className="relative">
+              <Lock className={icone} style={{ color: "var(--text-4)" }} />
+              <input id="dev-senha" type="password" required value={senha} onChange={(e) => setSenha(e.target.value)} placeholder="••••••••" autoComplete="current-password" className={campo} />
+            </div>
+          </div>
+        )}
+
+        {mode === "admin" && (
+          <>
+            <div>
+              <label htmlFor="adm-slug" className={rotulo} style={{ color: "var(--text-3)" }}>Slug da imobiliária</label>
+              <div className="relative">
+                <Building className={icone} style={{ color: "var(--text-4)" }} />
+                <input id="adm-slug" type="text" required value={slug} onChange={(e) => setSlug(e.target.value.toLowerCase().trim())} placeholder="alvorada" className={`${campo} font-mono`} />
+              </div>
+            </div>
+            <div>
+              <label htmlFor="adm-email" className={rotulo} style={{ color: "var(--text-3)" }}>E-mail</label>
+              <div className="relative">
+                <Mail className={icone} style={{ color: "var(--text-4)" }} />
+                <input id="adm-email" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="admin@imobiliaria.com.br" autoComplete="username" className={campo} />
+              </div>
+            </div>
+            <div>
+              <label htmlFor="adm-senha" className={rotulo} style={{ color: "var(--text-3)" }}>Senha</label>
+              <div className="relative">
+                <Lock className={icone} style={{ color: "var(--text-4)" }} />
+                <input id="adm-senha" type="password" required value={senha} onChange={(e) => setSenha(e.target.value)} autoComplete="current-password" className={campo} />
+              </div>
+            </div>
+          </>
+        )}
+
+        {mode === "corretor" && (
+          <>
+            <div>
+              <label htmlFor="cor-slug" className={rotulo} style={{ color: "var(--text-3)" }}>Slug da imobiliária</label>
+              <div className="relative">
+                <Building className={icone} style={{ color: "var(--text-4)" }} />
+                <input id="cor-slug" type="text" required value={slug} onChange={(e) => setSlug(e.target.value.toLowerCase().trim())} placeholder="alvorada" className={`${campo} font-mono`} />
+              </div>
+            </div>
+            <div>
+              <label htmlFor="cor-tel" className={rotulo} style={{ color: "var(--text-3)" }}>WhatsApp cadastrado</label>
+              <div className="relative">
+                <Phone className={icone} style={{ color: "var(--text-4)" }} />
+                <input id="cor-tel" type="tel" required value={telefone} onChange={(e) => setTelefone(e.target.value)} placeholder="(31) 99999-8888" disabled={codigoEnviado} className={campo} />
+              </div>
+            </div>
+            {codigoEnviado && (
+              <div>
+                <label htmlFor="codigo" className={rotulo} style={{ color: "var(--text-3)" }}>Código recebido no WhatsApp</label>
+                <div className="relative">
+                  <KeyRound className={icone} style={{ color: "var(--text-4)" }} />
+                  <input
+                    id="codigo" inputMode="numeric" autoComplete="one-time-code" required autoFocus maxLength={6} value={codigo}
+                    onChange={(e) => setCodigo(e.target.value.replace(/\D/g, ""))} placeholder="000000"
+                    className={`${campo} tracking-[0.3em] font-mono`}
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={() => { setCodigoEnviado(false); setCodigo(""); setAviso(null); }}
+                  className="mt-2.5 text-[13px] underline underline-offset-2 hover:opacity-80"
+                  style={{ color: "var(--text-3)" }}
+                >
+                  Trocar número ou pedir outro código
+                </button>
+              </div>
+            )}
+          </>
+        )}
+
+        {aviso && !error && (
+          <div role="status" className="px-3.5 py-3 rounded-2xl text-[13px] leading-relaxed" style={{ background: "var(--accent-soft)", color: "var(--accent-text)", border: "1px solid color-mix(in srgb, var(--accent) 25%, transparent)" }}>{aviso}</div>
+        )}
+
+        {error && (
+          <div role="alert" className="px-3.5 py-3 rounded-2xl text-[13px] leading-relaxed" style={{ background: "color-mix(in srgb, var(--danger) 10%, transparent)", color: "var(--danger)", border: "1px solid color-mix(in srgb, var(--danger) 28%, transparent)" }}>
+            {error}
+          </div>
+        )}
+
+        <button
+          type="submit"
+          disabled={loading}
+          className="w-full h-12 rounded-full text-[15px] font-semibold flex items-center justify-center gap-2 transition-opacity hover:opacity-90 disabled:opacity-60 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[color:var(--accent-soft)]"
+          style={{ background: "var(--chip)", color: "var(--chip-text)" }}
+        >
+          {loading ? "Aguarde..." : mode === "corretor" && !codigoEnviado ? "Receber código no WhatsApp" : "Entrar"}
+          {!loading && <ArrowRight className="w-4 h-4" />}
+        </button>
+      </form>
     </div>
+  );
+
+  if (compact) return <div className="w-full flex justify-center">{cartao}</div>;
+  return (
+    <TelaDeEntrada>
+      {topo}
+      {cartao}
+    </TelaDeEntrada>
   );
 }

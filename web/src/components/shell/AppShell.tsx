@@ -107,11 +107,12 @@ export default function AppShell({ marca, subtitulo, grupos, rodape = [], ativo,
         onClick={() => ir(item.id)}
         title={compacto ? item.rotulo : undefined}
         aria-current={selecionado ? "page" : undefined}
-        className={`relative w-full flex items-center gap-3 rounded-xl text-[13.5px] transition-colors ${
-          compacto ? "justify-center h-10" : "px-3 h-10"
+        className={`relative w-full flex items-center gap-3 rounded-2xl text-[14px] transition-colors ${
+          compacto ? "justify-center h-11" : "px-3.5 h-11"
         } ${selecionado ? "font-medium" : ""}`}
         style={{
-          background: selecionado ? "var(--card-2)" : undefined,
+          background: selecionado ? "var(--nav-ativo)" : undefined,
+          boxShadow: selecionado ? "var(--sombra)" : undefined,
           color: selecionado ? "var(--text)" : "var(--text-3)",
         }}
         onMouseEnter={(e) => !selecionado && (e.currentTarget.style.color = "var(--text)")}
@@ -144,14 +145,14 @@ export default function AppShell({ marca, subtitulo, grupos, rodape = [], ativo,
           </>
         )}
       </div>
-      <nav className={`flex-1 overflow-y-auto py-2 space-y-5 ${compacto ? "px-2" : "px-3"}`} aria-label="Menu principal">
+      <nav className={`flex-1 overflow-y-auto py-3 space-y-6 ${compacto ? "px-2" : "px-3"}`} aria-label="Menu principal">
         {grupos.map((g, i) => (
-          <div key={i} className="space-y-0.5">
+          <div key={i} className="space-y-1">
             {g.titulo &&
               (compacto ? (
                 <div className="mx-2 my-2 h-px" style={{ background: "var(--line)" }} />
               ) : (
-                <p className="px-3 pb-1.5 text-[10.5px] font-semibold uppercase tracking-[0.12em]" style={{ color: "var(--text-4)" }}>
+                <p className="px-3.5 pb-2 text-[11px] font-semibold uppercase tracking-[0.12em]" style={{ color: "var(--text-4)" }}>
                   {g.titulo}
                 </p>
               ))}
@@ -184,11 +185,11 @@ export default function AppShell({ marca, subtitulo, grupos, rodape = [], ativo,
   );
 
   return (
-    <div className={`app-tema ${tema === "claro" ? "app-claro" : ""} relative h-dvh overflow-hidden flex`} style={{ background: "var(--bg)" }}>
+    <div className={`app-tema ${tema === "claro" ? "app-claro" : ""} relative h-dvh overflow-hidden flex`} style={{ background: "var(--shell)" }}>
       {/* Menu lateral (desktop) */}
       <aside
         className={`hidden lg:block h-full shrink-0 transition-[width] duration-200 ${recolhido ? "w-[68px]" : "w-[236px]"}`}
-        style={{ background: "var(--sidebar)", borderRight: "1px solid var(--line)" }}
+        style={{ background: "var(--sidebar)" }}
       >
         <Lateral compacto={recolhido} />
       </aside>
@@ -196,20 +197,20 @@ export default function AppShell({ marca, subtitulo, grupos, rodape = [], ativo,
       {/* Gaveta (celular) */}
       {gaveta && (
         <div className="lg:hidden fixed inset-0 z-50 flex">
-          <div className="w-[260px] h-full" style={{ background: "var(--sidebar)" }}>
+          <div className="w-[260px] h-full" style={{ background: "var(--sidebar)", borderRight: "1px solid var(--line)" }}>
             <Lateral compacto={false} />
           </div>
           <button className="flex-1 bg-black/60" aria-label="Fechar menu" onClick={() => setGaveta(false)} />
         </div>
       )}
 
-      <div className="relative flex-1 min-w-0 h-full overflow-y-auto overflow-x-hidden flex flex-col" style={{ background: "var(--bg)" }}>
-        {/* Barra superior */}
-        <header className="sticky top-0 z-30 h-16 flex items-center gap-3 px-4 lg:px-6" style={{ background: "var(--bg)", borderBottom: "1px solid var(--line)" }}>
+      <div className="relative flex-1 min-w-0 h-full flex flex-col" style={{ background: "var(--shell)" }}>
+        {/* Barra superior (na moldura, fora do painel que rola) */}
+        <header className="relative z-30 h-[68px] shrink-0 flex items-center gap-3 px-4 lg:px-6">
           <button onClick={() => setGaveta(true)} className="lg:hidden p-2 rounded-xl" style={{ color: "var(--text-3)" }} aria-label="Abrir menu">
             <Menu className="w-5 h-5" />
           </button>
-          <button onClick={alternarMenu} className="hidden lg:flex p-2 rounded-xl" style={{ color: "var(--text-3)", border: "1px solid var(--line)" }} aria-label="Recolher menu" title="Recolher menu">
+          <button onClick={alternarMenu} className="hidden lg:flex p-2 rounded-xl" style={{ color: "var(--text-3)", border: "1px solid var(--line)", background: "var(--card)", boxShadow: "var(--sombra)" }} aria-label="Recolher menu" title="Recolher menu">
             <PanelLeft className="w-4 h-4" />
           </button>
 
@@ -227,14 +228,14 @@ export default function AppShell({ marca, subtitulo, grupos, rodape = [], ativo,
               onKeyDown={(e) => e.key === "Enter" && resultados[0] && ir(resultados[0].id)}
               placeholder="Ir para..."
               aria-label="Buscar página"
-              className="w-full h-10 pl-9 pr-14 rounded-full text-sm"
-              style={{ border: "1px solid var(--line)" }}
+              className="w-full h-11 pl-10 pr-14 rounded-full text-sm"
+              style={{ border: "1px solid var(--line)", background: "var(--card)", boxShadow: "var(--sombra)" }}
             />
             <kbd className="hidden sm:block absolute right-3 top-1/2 -translate-y-1/2 text-[10px] px-1.5 py-0.5 rounded-md" style={{ background: "var(--card-2)", color: "var(--text-4)" }}>
               ⌘K
             </kbd>
             {buscaAberta && resultados.length > 0 && (
-              <ul className="absolute left-0 right-0 mt-2 p-1.5 rounded-2xl z-40" style={{ background: "var(--card)", border: "1px solid var(--line-2)" }}>
+              <ul className="absolute left-0 right-0 mt-2 p-1.5 rounded-2xl z-40" style={{ background: "var(--card)", border: "1px solid var(--line-2)", boxShadow: "var(--sombra-funda)" }}>
                 {resultados.map((r) => {
                   const Icone = r.icone;
                   return (
@@ -257,8 +258,8 @@ export default function AppShell({ marca, subtitulo, grupos, rodape = [], ativo,
           <div className="ml-auto flex items-center gap-2">
             <button
               onClick={trocarTema}
-              className="w-10 h-10 rounded-full flex items-center justify-center"
-              style={{ border: "1px solid var(--line)", color: "var(--text-3)" }}
+              className="w-11 h-11 rounded-full flex items-center justify-center"
+              style={{ border: "1px solid var(--line)", color: "var(--text-3)", background: "var(--card)", boxShadow: "var(--sombra)" }}
               aria-label={tema === "escuro" ? "Usar tema claro" : "Usar tema escuro"}
               title={tema === "escuro" ? "Tema claro" : "Tema escuro"}
             >
@@ -267,13 +268,15 @@ export default function AppShell({ marca, subtitulo, grupos, rodape = [], ativo,
           </div>
         </header>
 
-        {larguraTotal ? (
-          <main className="flex-1 min-h-0 flex flex-col overflow-hidden">{children}</main>
-        ) : (
-          <main className="flex-1 px-4 py-6 lg:px-8 lg:py-8">
-            <div className="max-w-6xl mx-auto space-y-6">{children}</div>
-          </main>
-        )}
+        <div className="shell-painel relative flex-1 min-h-0 overflow-y-auto overflow-x-hidden flex flex-col">
+          {larguraTotal ? (
+            <main className="flex-1 min-h-0 flex flex-col overflow-hidden">{children}</main>
+          ) : (
+            <main className="flex-1 px-5 py-8 lg:px-10 lg:py-10">
+              <div className="max-w-6xl mx-auto space-y-8">{children}</div>
+            </main>
+          )}
+        </div>
       </div>
     </div>
   );
