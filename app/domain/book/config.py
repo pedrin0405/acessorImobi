@@ -3,16 +3,16 @@ import re
 from typing import Any, Dict, List
 
 LAYOUTS = [
-    {"id": "classico", "nome": "Clássico", "descricao": "Uma página por imóvel: foto grande, dados, descrição e fotos extras."},
-    {"id": "galeria", "nome": "Galeria de fotos", "descricao": "Foco nas imagens: foto de abertura em tela cheia e grade de fotos."},
-    {"id": "compacto", "nome": "Resumido", "descricao": "Dois imóveis por página, com foto e ficha técnica lado a lado."},
+    {"id": "classico", "nome": "Editorial", "descricao": "Revista de arquitetura: foto de abertura, título em serifa sobre a imagem, tabela de dados e texto em duas colunas."},
+    {"id": "galeria", "nome": "Vitrine", "descricao": "Cinema: fundo escuro, fotos de sangria total com título e valor sobre a imagem e mosaico de fotos."},
+    {"id": "compacto", "nome": "Ficha", "descricao": "Folha técnica: índice da seleção e dois imóveis por página, com os dados em tabela."},
 ]
 LAYOUT_IDS = {l["id"] for l in LAYOUTS}
 FONTES = ("moderna", "classica")
 RE_COR = re.compile(r"^#[0-9a-fA-F]{6}$")
 
 PADRAO: Dict[str, Any] = {
-    "layout": "classico", "cor_primaria": "#0f5c3a", "cor_secundaria": "#d9a441", "fonte": "moderna",
+    "layout": "classico", "cor_primaria": "#1f3a2e", "cor_secundaria": "#b4532a", "fonte": "classica",
     "mostrar_capa": True, "titulo_capa": "Seleção de imóveis", "subtitulo_capa": "Preparada especialmente para você",
     "mostrar_logo": True, "fotos_por_imovel": 4,
     "mostrar_descricao": True, "mostrar_caracteristicas": True, "mostrar_custos": True, "mostrar_endereco": True,
@@ -23,13 +23,13 @@ _BOOLS = [k for k, v in PADRAO.items() if isinstance(v, bool)]
 _TEXTOS = {"titulo_capa": 80, "subtitulo_capa": 120, "rodape": 160, "mensagem_final": 300}
 
 FABRICA: List[Dict[str, Any]] = [
-    {"nome": "Clássico", "padrao": True, "config": {}},
-    {"nome": "Galeria de fotos", "padrao": False, "config": {
-        "layout": "galeria", "cor_primaria": "#1f2937", "cor_secundaria": "#38bdf8", "fotos_por_imovel": 6,
-        "mostrar_descricao": False, "mostrar_caracteristicas": False}},
-    {"nome": "Resumido", "padrao": False, "config": {
-        "layout": "compacto", "cor_primaria": "#7c2d12", "cor_secundaria": "#f59e0b", "fonte": "classica", "fotos_por_imovel": 1,
-        "mostrar_capa": False, "mostrar_descricao": False, "mostrar_caracteristicas": False}},
+    {"nome": "Editorial", "padrao": True, "config": {}},
+    {"nome": "Vitrine", "padrao": False, "config": {
+        "layout": "galeria", "cor_primaria": "#0f1115", "cor_secundaria": "#e8b04a", "fonte": "moderna", "fotos_por_imovel": 6,
+        "mostrar_capa": True, "mostrar_descricao": True, "mostrar_caracteristicas": False}},
+    {"nome": "Ficha", "padrao": False, "config": {
+        "layout": "compacto", "cor_primaria": "#14213d", "cor_secundaria": "#ff5a36", "fonte": "moderna", "fotos_por_imovel": 3,
+        "mostrar_capa": True, "mostrar_descricao": False, "mostrar_caracteristicas": False}},
 ]
 
 
