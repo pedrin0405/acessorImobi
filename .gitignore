@@ -27,3 +27,4 @@ re-kleo-capturas-originais/
 # Configuração local do Claude Code e evidências de engenharia reversa (repositório próprio)
 .claude/
 re-kleo/
+prompts/
