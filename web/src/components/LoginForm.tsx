@@ -2,7 +2,7 @@
 
 import React, { useState } from "react";
 import { Lock, Mail, Phone, Building, ArrowRight, KeyRound } from "lucide-react";
-import LogoAcessor from "@/components/shell/LogoAcessor";
+import { MarcaVertical } from "@/components/marca/Marca";
 import { TelaDeEntrada } from "@/components/tema/tema";
 import { API_BASE, setToken } from "@/lib/api";
 
@@ -105,7 +105,7 @@ export default function LoginForm({ mode, onSuccess, compact, topo }: Props) {
       style={{ background: "var(--card)", border: "1px solid var(--line)", boxShadow: "var(--sombra-funda)" }}
     >
       <div className="flex flex-col items-center gap-4 text-center">
-        <LogoAcessor className="w-16 h-16 rounded-2xl" alt="acessorImobi" />
+        <MarcaVertical animada className="w-44 h-auto" alt="Acessor Imobi" />
         <div className="space-y-1.5">
           <h1 className="text-[22px] font-semibold tracking-tight" style={{ color: "var(--text)" }}>{titles[mode]}</h1>
           <p className="text-sm leading-relaxed" style={{ color: "var(--text-3)" }}>{subtitulos[mode]}</p>

@@ -259,3 +259,24 @@ body {
 /* Linhas de tabela e de lista: respiram e destacam no hover */
 .app-claro table tbody tr:hover { background: var(--hover-solid); }
 .app-claro ::selection { background: color-mix(in srgb, var(--accent) 22%, transparent); }
+
+/* =============================================================================
+   Marca Acessor Imobi: animações do arco e do ponto (components/marca/Marca.tsx)
+   ============================================================================= */
+.marca-animada .m-arco { stroke-dasharray: 1; animation: marca-trace 1s cubic-bezier(.65, 0, .25, 1) both; }
+.marca-animada .m-ponto { transform-box: fill-box; transform-origin: center; animation: marca-pop .55s cubic-bezier(.3, 1.6, .5, 1) .78s both, marca-flutua 3.4s ease-in-out 1.6s infinite; }
+.marca-animada .m-forte { animation: marca-sobe .6s cubic-bezier(.22, 1, .36, 1) .85s both; }
+.marca-animada .m-leve { animation: marca-sobe .6s cubic-bezier(.22, 1, .36, 1) 1.05s both; }
+/* Carregando: o arco se desenha e se apaga em ciclo, enquanto o ponto pulsa */
+.marca-carregando .m-arco { stroke-dasharray: 1; animation: marca-ciclo 1.8s cubic-bezier(.65, 0, .35, 1) infinite; }
+.marca-carregando .m-ponto { transform-box: fill-box; transform-origin: center; animation: marca-pulsa 1.8s ease-in-out infinite; }
+@keyframes marca-trace { from { stroke-dashoffset: 1; } to { stroke-dashoffset: 0; } }
+@keyframes marca-pop { from { transform: scale(0); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+@keyframes marca-flutua { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-5px); } }
+@keyframes marca-sobe { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+@keyframes marca-ciclo { 0% { stroke-dashoffset: 1; } 55% { stroke-dashoffset: 0; } 100% { stroke-dashoffset: -1; } }
+@keyframes marca-pulsa { 0%, 100% { transform: scale(1); opacity: 1; } 50% { transform: scale(.55); opacity: .55; } }
+@media (prefers-reduced-motion: reduce) {
+  .marca-animada .m-arco, .marca-animada .m-ponto, .marca-animada .m-forte, .marca-animada .m-leve,
+  .marca-carregando .m-arco, .marca-carregando .m-ponto { animation: none !important; }
+}

@@ -1,33 +1,15 @@
 import React from "react";
+import { MarcaHorizontal } from "@/components/marca/Marca";
 
 interface Props {
-  tema: "claro" | "escuro";
+  /** Mantido por compatibilidade: a marca segue o tema pelas variáveis CSS. */
+  tema?: "claro" | "escuro";
   className?: string;
   alt?: string;
+  animada?: boolean;
 }
 
-/**
- * Marca horizontal do acessorImobi para a barra lateral.
- * O arquivo claro tem o nome "Acessor" em preto; o escuro, em branco.
- */
-export default function LogoAcessorHorizontal({
-  tema,
-  className = "w-36 h-auto",
-  alt = "Acessor Imobi",
-}: Props) {
-  const src =
-    tema === "claro"
-      ? "/logo-acessorimobi-horizontal-claro.png"
-      : "/logo-acessorimobi-horizontal-escuro.png";
-
-  return (
-    <img
-      src={src}
-      alt={alt}
-      width={1080}
-      height={349}
-      className={`shrink-0 ${className}`}
-      draggable={false}
-    />
-  );
+/** Marca horizontal do Acessor Imobi para a barra lateral e cabeçalhos. */
+export default function LogoAcessorHorizontal({ className = "w-36 h-auto", alt = "Acessor Imobi", animada }: Props) {
+  return <MarcaHorizontal className={className} alt={alt} animada={animada} />;
 }

@@ -140,7 +140,7 @@ export default function AppShell({ marca, subtitulo, grupos, rodape = [], ativo,
           <LogoAcessor className="w-9 h-9" alt={marca} />
         ) : (
           <>
-            <LogoAcessorHorizontal tema={tema} alt={`${marca} Imobi`} className="w-36 h-auto" />
+            <LogoAcessorHorizontal tema={tema} animada alt={`${marca} Imobi`} className="w-36 h-auto" />
             <p className="mt-0.5 text-[11px] truncate" style={{ color: "var(--text-4)" }}>{subtitulo}</p>
           </>
         )}

@@ -2,15 +2,14 @@ import "./globals.css";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "acessorImobi — Plataforma de Assistente Imobiliário",
+  title: "Acessor Imobi — Plataforma de Assistente Imobiliário",
   description: "Suporte operacional para corretores e imobiliárias com IA e Imoview",
   icons: {
     // A versão na URL força o navegador a trocar o favicon antigo em cache.
-    icon: [{ url: "/logo-acessorimobi.svg?v=1", type: "image/svg+xml" }],
-    shortcut: [{ url: "/logo-acessorimobi.svg?v=1", type: "image/svg+xml" }],
-    apple: [{ url: "/apple-touch-icon.png?v=1", sizes: "180x180", type: "image/png" }],
-  },
-};
+    icon: [{ url: "/marca/favicon.svg?v=2", type: "image/svg+xml" }],
+    shortcut: [{ url: "/marca/favicon.svg?v=2", type: "image/svg+xml" }],
+    apple: [{ url: "/apple-touch-icon.png?v=2", sizes: "180x180", type: "image/png" }],
+  },};
 
 export default function RootLayout({
   children,
