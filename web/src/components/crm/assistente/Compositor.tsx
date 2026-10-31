@@ -247,7 +247,7 @@ const Compositor = forwardRef<CompositorRef, Props>(function Compositor(
             const arquivos = Array.from(e.clipboardData.files);
             if (arquivos.length) { e.preventDefault(); adicionar(arquivos); }
           }}
-          placeholder="Pergunte ao Acessor ou digite / para ver o que ele faz"
+          placeholder="Pergunte ao Acessor, peça imóveis (“3 opções na Orla”) ou um book em PDF. Digite / para ver o que ele faz"
           aria-label="Pergunte ao Acessor"
           role="combobox"
           aria-expanded={menuVisivel}

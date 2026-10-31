@@ -76,3 +76,13 @@ async def perguntar(conversa_id: UUID, body: MensagemEntrada, admin=Depends(requ
             )
         except AssistenteErro as e:
             raise _http(e)
+
+
+@router.get("/mensagens/{mensagem_id}/book", summary="PDF do book gerado numa resposta do assistente")
+async def book_da_mensagem(mensagem_id: UUID, admin=Depends(require_admin)):
+    async with get_session(admin.tenant_id) as session:
+        arquivo = await AssistenteService(session, admin.tenant_id, admin.admin_id).arquivo_do_book(mensagem_id)
+    if not arquivo:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Book não encontrado.")
+    dados, tipo, nome = arquivo
+    return Response(dados, media_type=tipo, headers={"Content-Disposition": f'inline; filename="{nome}"', "Cache-Control": "private, max-age=3600"})

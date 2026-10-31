@@ -273,6 +273,32 @@ class ClienteUpdate(BaseModel):
     status: Optional[str] = Field(default=None, pattern="^(lead|cliente|arquivado)$")
 
 
+@router.get("/clientes/{lead_id}/linha-do-tempo", summary="Tudo que aconteceu com o cliente: corretor, cliente, funil, agenda e Imoview")
+async def linha_do_tempo_cliente(lead_id: UUID, limite: int = Query(400, ge=10, le=1000), admin=Depends(require_admin)):
+    from app.domain.crm import linha_do_tempo
+
+    async with get_session(admin.tenant_id) as session:
+        return await linha_do_tempo.montar(session, admin.tenant_id, lead_id, limite)
+
+
+@router.get("/negocios/{negocio_id}/completo", summary="Cartão do Fluxo por inteiro: negócio, ficha do cliente e linha do tempo")
+async def negocio_completo(negocio_id: UUID, admin=Depends(require_admin)):
+    from app.domain.crm import linha_do_tempo
+
+    async with get_session(admin.tenant_id) as session:
+        crm = CrmService(session)
+        negocio = await crm.get_negocio(admin.tenant_id, negocio_id)
+        if not negocio:
+            raise HTTPException(status_code=404, detail="Negócio não encontrado.")
+        lead_id = UUID(str(negocio["lead_id"]))
+        return {
+            "negocio": negocio,
+            "eventos_do_negocio": await crm.eventos(admin.tenant_id, negocio_id),
+            "ficha": await crm.ficha_cliente(admin.tenant_id, lead_id),
+            "linha_do_tempo": await linha_do_tempo.montar(session, admin.tenant_id, lead_id),
+        }
+
+
 @router.patch("/clientes/{lead_id}", summary="Ajusta temperatura, observações ou situação do cliente")
 async def atualizar_cliente(lead_id: UUID, body: ClienteUpdate, admin=Depends(require_admin)):
     async with get_session(admin.tenant_id) as session:

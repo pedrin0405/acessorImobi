@@ -1,5 +1,6 @@
 "use client";
 
+import AvatarDoCorretor from "@/components/corretor/AvatarDoCorretor";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight, Search, Shuffle, UserCheck, X } from "lucide-react";
 import { Perfil } from "@/lib/crm";
@@ -213,7 +214,7 @@ export default function Leads({ onAuthError, onIr }: { onAuthError: (e: unknown)
                           <p className="sm:hidden mt-1 text-xs" style={{ color: c.corretor_nome ? "var(--text-2)" : "var(--warn)" }}>{c.corretor_nome || "Sem responsável"}</p>
                         </td>
                         <td className="py-3 pr-3 hidden md:table-cell whitespace-nowrap"><Selo tom={c.origem === "imoview" ? "info" : "neutro"}>{rotuloOrigem(c.origem)}</Selo></td>
-                        <td className="py-3 pr-3 hidden sm:table-cell whitespace-nowrap">{c.corretor_nome ? <span style={{ color: "var(--text-2)" }}>{c.corretor_nome}</span> : <Selo tom="aviso">Sem responsável</Selo>}</td>
+                        <td className="py-3 pr-3 hidden sm:table-cell whitespace-nowrap">{c.corretor_nome ? <span className="inline-flex items-center gap-2" style={{ color: "var(--text-2)" }}><AvatarDoCorretor id={c.corretor_id} nome={c.corretor_nome} tamanho={24} />{c.corretor_nome}</span> : <Selo tom="aviso">Sem responsável</Selo>}</td>
                         <td className="py-3 pr-4 hidden lg:table-cell text-xs tabular-nums" style={{ color: "var(--text-3)" }}>{data(c.created_at)}</td>
                       </tr>
                     );

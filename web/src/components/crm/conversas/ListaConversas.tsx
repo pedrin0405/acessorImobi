@@ -1,5 +1,6 @@
 "use client";
 
+import AvatarDoCorretor from "@/components/corretor/AvatarDoCorretor";
 import React, { useMemo, useState } from "react";
 import { Image as ImagemIcone, MessageSquare, Mic, RefreshCw, Search } from "lucide-react";
 import type { ConversaResumo } from "./tipos";
@@ -47,7 +48,8 @@ export function previaDaConversa(c: ConversaResumo): { tipo: "foto" | "audio" | 
   return { tipo: null, texto: `${prefixo}${c.ultima_mensagem.replace(/\*/g, "")}` };
 }
 
-export function Avatar({ nome, tamanho = 44 }: { nome: string | null; tamanho?: number }) {
+export function Avatar({ nome, tamanho = 44, id }: { nome: string | null; tamanho?: number; id?: string | null }) {
+  if (id) return <AvatarDoCorretor id={id} nome={nome} tamanho={tamanho} />;
   return (
     <span
       className="shrink-0 rounded-full flex items-center justify-center font-semibold"
@@ -177,7 +179,7 @@ export default function ListaConversas({
                     className="w-full flex items-start gap-3 px-3 py-3 rounded-2xl text-left transition-colors hover:bg-[var(--card-2)]"
                     style={ativa ? { background: "var(--hover-solid)" } : undefined}
                   >
-                    <Avatar nome={c.corretor_nome} />
+                    <Avatar nome={c.corretor_nome} id={c.corretor_id} />
                     <span className="min-w-0 flex-1">
                       <span className="flex items-baseline justify-between gap-2">
                         <span className="truncate text-[15px] font-medium" style={{ color: "var(--text)" }}>{c.corretor_nome || c.telefone_mascarado}</span>

@@ -1,5 +1,6 @@
 "use client";
 
+import AvatarDoCorretor from "@/components/corretor/AvatarDoCorretor";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { CalendarDays, ExternalLink, Handshake, History, Loader2, Sparkles, Users, X } from "lucide-react";
 import { fetchApi } from "@/lib/api";
@@ -149,9 +150,7 @@ export default function PainelDetalhes({
 
       <div className="flex-1 overflow-y-auto px-5 pb-8">
         <div className="pt-6 flex flex-col items-center text-center">
-          <span className="w-24 h-24 rounded-3xl flex items-center justify-center text-4xl font-semibold" style={{ background: "var(--accent-soft)", color: "var(--accent-text)" }} aria-hidden>
-            {(nome || "?").trim().charAt(0).toUpperCase()}
-          </span>
+          <AvatarDoCorretor id={corretorId} nome={nome} tamanho={96} />
           <h3 className="mt-3 text-lg font-semibold" style={{ color: "var(--text)" }}>{nome}</h3>
           <div className="mt-1 flex items-center gap-2 text-xs">
             <span className="px-2 py-0.5 rounded-md" style={{ background: "var(--card-2)", color: "var(--text-3)" }}>Corretor</span>

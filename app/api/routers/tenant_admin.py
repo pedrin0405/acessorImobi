@@ -700,3 +700,88 @@ async def desconectar_whatsapp(admin=Depends(require_admin)):
             origem="portal",
         )
     return resultado
+
+
+# --- Painel do corretor -----------------------------------------------------------------
+
+class CorretorDadosRequest(BaseModel):
+    nome: Optional[str] = None
+    email: Optional[str] = None
+
+
+class CorretorAssistenteRequest(BaseModel):
+    ativo: bool = True
+    avisos: bool = True
+    carteira_auto: bool = True
+
+
+class CorretorRoletaRequest(BaseModel):
+    participa: bool
+
+
+class CorretorSituacaoRequest(BaseModel):
+    ativo: bool
+
+
+async def _painel_ou_404(session, admin, corretor_id: UUID):
+    from app.domain.corretor import painel
+
+    dados = await painel.montar(session, admin.tenant_id, corretor_id)
+    if not dados:
+        raise HTTPException(status_code=404, detail="Corretor não encontrado.")
+    return dados
+
+
+@router.get("/corretores/{corretor_id}/painel", summary="Painel do corretor: dados, carteira, atividade e preferências")
+async def painel_do_corretor(corretor_id: UUID, admin=Depends(require_admin)):
+    async with get_session(admin.tenant_id) as session:
+        return await _painel_ou_404(session, admin, corretor_id)
+
+
+@router.patch("/corretores/{corretor_id}", summary="Edita nome e e-mail do corretor")
+async def editar_corretor(corretor_id: UUID, body: CorretorDadosRequest, admin=Depends(require_admin)):
+    from app.domain.corretor import painel
+
+    async with get_session(admin.tenant_id) as session:
+        await _painel_ou_404(session, admin, corretor_id)
+        try:
+            await painel.atualizar_dados(session, admin.tenant_id, corretor_id, body.nome, body.email)
+        except painel.PainelErro as e:
+            raise HTTPException(status_code=422, detail=str(e))
+        return await _painel_ou_404(session, admin, corretor_id)
+
+
+@router.put("/corretores/{corretor_id}/assistente", summary="Preferências do assistente deste corretor")
+async def preferencias_do_corretor(corretor_id: UUID, body: CorretorAssistenteRequest, admin=Depends(require_admin)):
+    from app.domain.corretor import painel
+
+    async with get_session(admin.tenant_id) as session:
+        await _painel_ou_404(session, admin, corretor_id)
+        return await painel.salvar_assistente(session, admin.tenant_id, corretor_id, body.model_dump())
+
+
+@router.put("/corretores/{corretor_id}/roleta", summary="Inclui ou tira o corretor da roleta de leads")
+async def roleta_do_corretor(corretor_id: UUID, body: CorretorRoletaRequest, admin=Depends(require_admin)):
+    from app.domain.corretor import painel
+
+    async with get_session(admin.tenant_id) as session:
+        await _painel_ou_404(session, admin, corretor_id)
+        await painel.definir_roleta(session, admin.tenant_id, corretor_id, body.participa)
+        return {"participa": body.participa}
+
+
+@router.put("/corretores/{corretor_id}/situacao", summary="Ativa ou bloqueia um corretor já aprovado")
+async def situacao_do_corretor(corretor_id: UUID, body: CorretorSituacaoRequest, admin=Depends(require_admin)):
+    from app.domain.corretor import painel
+
+    async with get_session(admin.tenant_id) as session:
+        await _painel_ou_404(session, admin, corretor_id)
+        try:
+            novo = await painel.definir_situacao(session, admin.tenant_id, corretor_id, body.ativo)
+        except painel.PainelErro as e:
+            raise HTTPException(status_code=409, detail=str(e))
+        await AuditoriaService(session).registrar(
+            tenant_id=admin.tenant_id, corretor_id=corretor_id, acao="corretor_ativado" if body.ativo else "corretor_bloqueado",
+            entidade="corretor", entidade_id=str(corretor_id), origem="portal",
+        )
+        return {"status": novo}

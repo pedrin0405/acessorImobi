@@ -7,6 +7,7 @@ import LogoAcessor from "@/components/shell/LogoAcessor";
 import Compositor, { CompositorRef, mimeDoArquivo } from "./Compositor";
 import Gaveta, { ConversaIA, rotuloDia } from "./Gaveta";
 import RespostaIA from "./RespostaIA";
+import BlocosResposta, { BlocoIA } from "./BlocosResposta";
 import Simbolo from "./Simbolo";
 
 interface AnexoMeta {
@@ -19,6 +20,7 @@ interface MensagemIA {
   papel: "user" | "assistant";
   conteudo: string;
   anexos: AnexoMeta[];
+  blocos?: BlocoIA[];
   animar?: boolean;
 }
 
@@ -110,8 +112,8 @@ export default function AssistenteInicio({
     try {
       const res = await fetchApi(`/admin/assistente/conversas/${c.id}`);
       if (!res.ok) throw new ErroApi("Não foi possível abrir esta conversa.");
-      const dados: { id: string; papel: "user" | "assistant"; conteudo: string; anexos: AnexoMeta[] }[] = await res.json();
-      setMensagens(dados.map((m) => ({ id: m.id, papel: m.papel, conteudo: m.conteudo, anexos: m.anexos || [] })));
+      const dados: { id: string; papel: "user" | "assistant"; conteudo: string; anexos: AnexoMeta[]; blocos?: BlocoIA[] }[] = await res.json();
+      setMensagens(dados.map((m) => ({ id: m.id, papel: m.papel, conteudo: m.conteudo, anexos: m.anexos || [], blocos: m.blocos || [] })));
     } catch (e) {
       if (!onAuthError(e)) setErro(e instanceof ErroApi ? e.message : "Falha de conexão ao abrir a conversa.");
     }
@@ -146,7 +148,7 @@ export default function AssistenteInicio({
       setTitulo(dados.titulo);
       setMensagens((m) => [
         ...m.map((x) => (x.id.startsWith("local-") ? { ...x, id: dados.pergunta.id } : x)),
-        { id: dados.resposta.id, papel: "assistant", conteudo: dados.resposta.conteudo, anexos: [], animar: true },
+        { id: dados.resposta.id, papel: "assistant", conteudo: dados.resposta.conteudo, anexos: [], blocos: dados.resposta.blocos || [], animar: true },
       ]);
       setPular(false);
       setDigitandoId(dados.resposta.id);
@@ -288,6 +290,7 @@ export default function AssistenteInicio({
                       onFim={() => fimDaResposta(m.id)}
                       onCresce={descer}
                     />
+                    {(digitandoId !== m.id || !m.animar) && <BlocosResposta blocos={m.blocos || []} onAuthError={onAuthError} />}
                   </div>
                 </div>
               )

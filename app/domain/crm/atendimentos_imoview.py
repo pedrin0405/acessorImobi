@@ -22,7 +22,7 @@ from zoneinfo import ZoneInfo
 import structlog
 from sqlalchemy import text
 
-from app.domain.crm.fluxo_imoview import ETAPA_DO_ESTAGIO, ESTAGIOS, ROTULO_ESTAGIO, deduzir_estagio, montar_detalhes
+from app.domain.crm.fluxo_imoview import ETAPA_DO_ESTAGIO, ESTAGIOS, ROTULO_ESTAGIO, deduzir_estagio, montar_detalhes, valor_do_atendimento
 from app.domain.crm.importacao_imoview import _data
 from app.domain.imovel.sync import SemCredenciais, carregar_credenciais, inteiro, mensagem_de_erro, sem_acento
 from app.integration.imoview.client import ImoviewClient, ImoviewRateLimitError, ImoviewUnavailableError
@@ -65,6 +65,7 @@ def normalizar_atendimento(bruto: Dict[str, Any], finalidade: int, fase: int) ->
         return None
     lead = bruto.get("lead") if isinstance(bruto.get("lead"), dict) else {}
     detalhes = montar_detalhes(bruto, _data)
+    valor_crm, valor_tipo, comissao = valor_do_atendimento(detalhes)
     texto = lambda v, n: (str(v or "").strip()[:n] or None)  # noqa: E731
     return {
         "codigo": codigo, "finalidade": finalidade, "fase": fase,
@@ -82,6 +83,7 @@ def normalizar_atendimento(bruto: Dict[str, Any], finalidade: int, fase: int) ->
         "entrada_em": _data(bruto.get("datahoraentradalead")), "primeira_resposta_em": _data(bruto.get("datahora1Resposta")),
         "ultima_interacao_em": _data(bruto.get("datahoraultimainteracao")),
         "previsao_fechamento_em": _data(bruto.get("dataprevisaofechamento")), "fechamento_em": _data(bruto.get("datafechamento")),
+        "valor_crm": valor_crm, "valor_tipo": valor_tipo, "comissao": comissao,
         "n_interacoes": len(detalhes["interacoes"]), "n_visitas": len(detalhes["visitas"]), "n_propostas": len(detalhes["propostas"]),
         "detalhes": json.dumps(detalhes, ensure_ascii=False),
     }
@@ -249,14 +251,15 @@ async def salvar_config(session, tenant_id: UUID, espelhar: bool, fases: Dict[st
 
 _ATIVO = """
     ativo AS (
-        SELECT DISTINCT ON (a.lead_codigo) a.lead_codigo, a.codigo, a.fase, a.estagio, a.situacao_tipo, a.alterado_em
+        SELECT DISTINCT ON (a.lead_codigo) a.lead_codigo, a.codigo, a.fase, a.estagio, a.situacao_tipo, a.alterado_em, a.valor_crm
         FROM imoview_atendimentos a WHERE a.tenant_id = :tid AND a.lead_codigo IS NOT NULL
         ORDER BY a.lead_codigo, (a.situacao_tipo = 'em_atendimento') DESC, a.alterado_em DESC NULLS LAST, a.codigo DESC
     ),
     alvo AS (
-        SELECT DISTINCT ON (n.lead_id) n.id AS nid, a.codigo, a.fase, a.estagio, a.situacao_tipo, a.alterado_em,
+        SELECT DISTINCT ON (n.lead_id) n.id AS nid, a.codigo, a.fase, a.estagio, a.situacao_tipo, a.alterado_em, a.valor_crm,
                (n.imoview_atendimento IS DISTINCT FROM a.codigo OR n.imoview_fase IS DISTINCT FROM a.fase
-                OR n.imoview_situacao IS DISTINCT FROM a.situacao_tipo OR n.imoview_estagio IS DISTINCT FROM a.estagio) AS mudou,
+                OR n.imoview_situacao IS DISTINCT FROM a.situacao_tipo OR n.imoview_estagio IS DISTINCT FROM a.estagio
+                OR (NOT n.valor_manual AND a.valor_crm IS NOT NULL AND n.valor IS DISTINCT FROM a.valor_crm)) AS mudou,
                (n.imoview_atualizado_em IS DISTINCT FROM a.alterado_em) AS alterado
         FROM ativo a
         JOIN crm_leads l ON l.tenant_id = :tid AND l.codigo_imoview = a.lead_codigo
@@ -272,7 +275,8 @@ async def ligar_negocios(s, tenant_id: UUID) -> List[str]:
         text(f"""
             WITH {_ATIVO}
             UPDATE crm_negocios n SET imoview_atendimento = alvo.codigo, imoview_fase = alvo.fase,
-                   imoview_situacao = alvo.situacao_tipo, imoview_estagio = alvo.estagio, imoview_atualizado_em = alvo.alterado_em
+                   imoview_situacao = alvo.situacao_tipo, imoview_estagio = alvo.estagio, imoview_atualizado_em = alvo.alterado_em,
+                   valor = CASE WHEN n.valor_manual OR alvo.valor_crm IS NULL THEN n.valor ELSE alvo.valor_crm END
             FROM alvo WHERE n.id = alvo.nid AND (alvo.mudou OR alvo.alterado)
             RETURNING n.id, alvo.mudou
         """),
@@ -448,7 +452,7 @@ async def _ler_pagina(cliente: Any, fin: str, fase: int, pagina: int, desde: Opt
     raise RuntimeError("inalcançável")
 
 
-_COLS_FLUXO = ('estagio', 'funil', 'midia', 'campanha', 'unidade', 'corretor_nome', 'mql_nome', 'qualificado', 'entrada_em', 'primeira_resposta_em', 'ultima_interacao_em', 'previsao_fechamento_em', 'fechamento_em', 'n_interacoes', 'n_visitas', 'n_propostas')
+_COLS_FLUXO = ('estagio', 'funil', 'midia', 'campanha', 'unidade', 'corretor_nome', 'mql_nome', 'qualificado', 'entrada_em', 'primeira_resposta_em', 'ultima_interacao_em', 'previsao_fechamento_em', 'fechamento_em', 'n_interacoes', 'n_visitas', 'n_propostas', 'valor_crm', 'valor_tipo', 'comissao')
 
 _UPSERT = text("""
     INSERT INTO imoview_atendimentos (tenant_id, codigo, finalidade, lead_codigo, fase, situacao, situacao_tipo, termometro,

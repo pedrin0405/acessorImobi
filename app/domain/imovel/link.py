@@ -40,6 +40,11 @@ def link_do_site(base: Optional[str], codigo: int, titulo: Optional[str], tipo: 
     return f"{base}/imovel/{meio}/{codigo}"
 
 
+def link_do_imovel(base: Optional[str], atual: Optional[str], codigo: int, titulo: Optional[str], tipo: Optional[str] = None, bairro: Optional[str] = None) -> Optional[str]:
+    """O link guardado no cache ou, se ainda vazio, o calculado pelo site da imobiliária (vale já na leitura, sem esperar o sync)."""
+    return atual or link_do_site(base, codigo, titulo, tipo, bairro)
+
+
 async def base_do_tenant(session, tenant_id) -> Optional[str]:
     site = (await session.execute(
         text("SELECT dados->'imobiliaria'->>'site' FROM tenants WHERE id = :tid"), {"tid": str(tenant_id)}

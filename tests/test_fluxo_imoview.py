@@ -66,3 +66,14 @@ def test_estagios_cobrem_as_etapas_padrao():
     from app.domain.crm.service import ETAPAS_PADRAO
     from app.domain.imovel.sync import sem_acento
     assert {sem_acento(n) for n, *_ in ETAPAS_PADRAO} == {ETAPA_DO_ESTAGIO[e] for e in ESTAGIOS}
+
+
+def test_valor_do_crm_do_mais_firme_ao_mais_fraco():
+    from app.domain.crm.fluxo_imoview import valor_do_atendimento as v
+    imovel = {"valor": "R$ 750.000,00"}
+    assert v({"negocios": [{"situacao": "Realizado", "valor": 380000, "comissao": 19000}], "propostas": [{"valor": 1, "situacao": "Ok"}]}) == (380000.0, "negocio", 19000.0)
+    assert v({"propostas": [{"valor": 365000, "situacao": "Cancelado"}, {"valor": 400000, "situacao": "Em negociação"}]}) == (400000.0, "proposta", None)
+    assert v({"propostas": [{"valor": 365000, "situacao": "Cancelado"}], "carrinho": [imovel]}) == (750000.0, "imovel", None)
+    assert v({"visitas": [{"em": "2026-10-01", "imovel": {"valor": "R$ 100.000,00"}}, {"em": "2026-10-09", "imovel": {"valor": "R$ 200.000,00"}}], "carrinho": [imovel]}) == (200000.0, "imovel", None)
+    assert v({"perfil": {"valor_ate": 3000}}) == (3000.0, "orcamento", None)
+    assert v({}) == (None, None, None)

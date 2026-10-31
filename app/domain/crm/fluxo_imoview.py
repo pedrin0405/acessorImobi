@@ -8,7 +8,7 @@ e descartado não são etapas: fecham o negócio (ganho/perdido).
 """
 import html
 import re
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from app.domain.imovel.sync import inteiro, numero_br, sem_acento
 
@@ -146,3 +146,31 @@ def montar_detalhes(bruto: Dict[str, Any], data) -> Dict[str, Any]:
         "perfil": _perfil(bruto.get("perfil")), "carrinho": carrinho, "visitas": visitas, "propostas": propostas,
         "negocios": negocios, "interacoes": interacoes[:MAX_INTERACOES],
     }
+
+
+def valor_do_atendimento(detalhes: Dict[str, Any]) -> Tuple[Optional[float], Optional[str], Optional[float]]:
+    """
+    Valor do negócio vindo do CRM, do mais firme ao mais fraco: negócio fechado (valor e comissão), proposta ativa,
+    imóvel da visita mais recente ou do carrinho e, por fim, o orçamento máximo do perfil. Devolve (valor, tipo, comissão).
+    """
+    negocios = [n for n in detalhes.get("negocios") or [] if (n.get("valor") or 0) > 0]
+    if negocios:
+        feitos = [n for n in negocios if "realiz" in sem_acento(n.get("situacao"))] or negocios
+        comissao = sum(n.get("comissao") or 0 for n in feitos)
+        return round(sum(n["valor"] for n in feitos), 2), "negocio", round(comissao, 2) if comissao else None
+    ativas = [
+        p for p in detalhes.get("propostas") or []
+        if (p.get("valor") or 0) > 0 and not any(t in sem_acento(p.get("situacao")) for t in ("cancel", "recus", "reprov"))
+    ]
+    if ativas:
+        return round(max(p["valor"] for p in ativas), 2), "proposta", None
+    visitas = sorted(detalhes.get("visitas") or [], key=lambda v: v.get("em") or "", reverse=True)
+    candidatos = [v.get("imovel") or {} for v in visitas] + list(detalhes.get("carrinho") or [])
+    for im in candidatos:
+        valor = numero_br(im.get("valor"))
+        if valor and valor > 0:
+            return round(valor, 2), "imovel", None
+    orcamento = (detalhes.get("perfil") or {}).get("valor_ate") or 0
+    if orcamento > 0:
+        return round(float(orcamento), 2), "orcamento", None
+    return None, None, None

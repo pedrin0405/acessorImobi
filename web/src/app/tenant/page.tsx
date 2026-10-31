@@ -40,6 +40,7 @@ import Configuracoes from "@/components/configuracoes/Configuracoes";
 import Agenda from "@/components/crm/Agenda";
 import Leads from "@/components/crm/Leads";
 import AvatarCorretor from "@/components/corretor/AvatarCorretor";
+import PainelCorretor from "@/components/corretor/PainelCorretor";
 import Negociacoes from "@/components/crm/Negociacoes";
 
 interface Corretor {
@@ -73,6 +74,8 @@ export default function TenantAdminPage() {
   const [secaoCfg, setSecaoCfg] = useState("perfil");
   const noWhatsapp = tab === "configuracoes" && secaoCfg === "whatsapp";
   const [corretores, setCorretores] = useState<Corretor[]>([]);
+  const [painelId, setPainelId] = useState<string | null>(null);
+  const [conversaDe, setConversaDe] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
   // Conversas (preview estilo WhatsApp)
@@ -662,6 +665,7 @@ export default function TenantAdminPage() {
             onRecarregar={loadConversas}
             onAuthError={tratarAuthError}
             onIr={(id) => setTab(id as Aba)}
+            corretorInicial={conversaDe}
           />
         )}
 
@@ -695,8 +699,8 @@ export default function TenantAdminPage() {
             ) : (
               <div className="divide-y divide-slate-100">
                 {corretores.map((c) => (
-                  <div key={c.id} className="p-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
-                    <div className="flex items-start gap-4">
+                  <div key={c.id} className="p-6 flex flex-col md:flex-row md:items-center justify-between gap-4 hover:bg-slate-50/50 transition-colors">
+                    <button type="button" onClick={() => setPainelId(c.id)} title="Abrir painel do corretor" aria-label={`Abrir painel de ${c.nome || "corretor"}`} className="flex items-start gap-4 text-left flex-1 min-w-0">
                       <AvatarCorretor nome={c.nome} fotoUrl={c.foto_url} tamanho={44} />
                       <div>
                       <div className="flex items-center gap-3">
@@ -718,7 +722,7 @@ export default function TenantAdminPage() {
                         {c.email && <span>E-mail: {c.email}</span>}
                       </div>
                       </div>
-                    </div>
+                    </button>
 
                     {c.status === "pending" && (
                       <div className="flex items-center gap-2">
@@ -744,6 +748,18 @@ export default function TenantAdminPage() {
               </div>
             )}
           </div>
+        )}
+
+        {painelId && (
+          <PainelCorretor
+            corretorId={painelId}
+            onFechar={() => setPainelId(null)}
+            onAuthError={tratarAuthError}
+            onMudou={loadCorretores}
+            onAbrirConversa={(id) => { setConversaDe(id); setTab("conversas"); }}
+            onAprovar={(id) => handleDecidir(id, true)}
+            onRecusar={(id) => { setRecusaId(id); setRecusaModalOpen(true); }}
+          />
         )}
 
         {/* Configurações (inclui o WhatsApp do agente e a configuração do agente) */}

@@ -1,5 +1,6 @@
 "use client";
 
+import AvatarDoCorretor from "@/components/corretor/AvatarDoCorretor";
 import React, { useState } from "react";
 import { Check, Clock, MapPin, User, Home, UserRound } from "lucide-react";
 import { Botao, Entrada, Selo } from "@/components/configuracoes/ui";
@@ -23,7 +24,7 @@ export default function Detalhe({ a, tipo, onFechar, onStatus, onRemarcar }: {
       </div>
       <ul className="space-y-2 text-sm" style={{ color: "var(--text-2)" }}>
         {linha(Clock, ini ? `${ini.toLocaleDateString("pt-BR", { weekday: "long", day: "numeric", month: "long" })} às ${hhmm(ini)}${a.duracao_min ? ` · ${a.duracao_min} min` : ""}` : "Sem data")}
-        {linha(User, a.corretor_nome && `Corretor: ${a.corretor_nome}`)}
+        {a.corretor_nome && <li className="flex items-center gap-2.5"><AvatarDoCorretor id={a.corretor_id} nome={a.corretor_nome} tamanho={26} /><span>Corretor: {a.corretor_nome}</span></li>}
         {linha(UserRound, a.lead_nome && `Cliente: ${a.lead_nome}`)}
         {linha(MapPin, a.local)}
         {linha(Home, a.imovel_codigo ? `Imóvel ${a.imovel_codigo}` : null)}

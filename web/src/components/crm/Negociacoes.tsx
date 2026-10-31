@@ -1,5 +1,6 @@
 "use client";
 
+import AvatarDoCorretor from "@/components/corretor/AvatarDoCorretor";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   CalendarCheck, ChevronLeft, ChevronRight, CircleDollarSign, Clock, Columns3, FileText, Handshake, LineChart, List,
@@ -266,7 +267,7 @@ export default function Negociacoes({ onAuthError }: { onAuthError: (e: unknown)
                         <div className="flex items-center justify-between gap-2 text-[11px]" style={{ color: "var(--text-3)" }}>
                           <span className="flex items-center gap-1.5 min-w-0">
                             {nv.lead_origem && <Selo tom={nv.lead_origem === "imoview" ? "info" : "neutro"}>{ORIGENS[nv.lead_origem] ?? nv.lead_origem}</Selo>}
-                            <span className="truncate" style={{ color: nv.corretor_nome ? "var(--text-2)" : "var(--warn)" }}>{nv.corretor_nome ?? "Sem responsável"}</span>
+                            {nv.corretor_nome && <AvatarDoCorretor id={nv.corretor_id} nome={nv.corretor_nome} tamanho={20} />}<span className="truncate" style={{ color: nv.corretor_nome ? "var(--text-2)" : "var(--warn)" }}>{nv.corretor_nome ?? "Sem responsável"}</span>
                           </span>
                           <span className="flex items-center gap-1 shrink-0" style={{ color: nv.travado ? "var(--warn)" : undefined }}><Clock className="w-3 h-3" aria-hidden />{nv.dias_na_etapa}d</span>
                         </div>
@@ -315,7 +316,7 @@ export default function Negociacoes({ onAuthError }: { onAuthError: (e: unknown)
                     <td className="py-3 pr-3"><span className="inline-flex items-center gap-1.5" style={{ color: "var(--text-2)" }}><span className={`w-2 h-2 rounded-full ${COR_ETAPA[nv.etapa_cor] ?? "bg-slate-400"}`} aria-hidden />{nv.etapa_nome}</span></td>
                     <td className="py-3 pr-3 hidden xl:table-cell text-xs"><span className="flex items-center gap-1.5"><TermometroSelo valor={nv.im_termometro} />{nv.im_midia && <span className="truncate max-w-[9rem]" style={{ color: "var(--text-3)" }}>{nv.im_midia}</span>}</span></td>
                     <td className="py-3 pr-3 hidden xl:table-cell text-xs" style={{ color: "var(--text-3)" }}>{nv.im_ultima_interacao ? tempoAtras(nv.im_ultima_interacao) : "—"}</td>
-                    <td className="py-3 pr-3 hidden md:table-cell">{nv.corretor_nome ? <span style={{ color: "var(--text-2)" }}>{nv.corretor_nome}</span> : <Selo tom="aviso">Sem responsável</Selo>}</td>
+                    <td className="py-3 pr-3 hidden md:table-cell">{nv.corretor_nome ? <span className="inline-flex items-center gap-2" style={{ color: "var(--text-2)" }}><AvatarDoCorretor id={nv.corretor_id} nome={nv.corretor_nome} tamanho={24} />{nv.corretor_nome}</span> : <Selo tom="aviso">Sem responsável</Selo>}</td>
                     <td className="py-3 pr-3 text-right tabular-nums hidden sm:table-cell" style={{ color: "var(--text-2)" }}>{nv.valor > 0 ? brl(nv.valor) : "—"}</td>
                     <td className="py-3 pr-4 text-right tabular-nums hidden lg:table-cell" style={{ color: nv.travado ? "var(--warn)" : "var(--text-3)" }}>{nv.dias_na_etapa} dias</td>
                   </tr>

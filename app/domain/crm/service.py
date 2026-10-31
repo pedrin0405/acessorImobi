@@ -527,7 +527,7 @@ class CrmService:
             atual = await self.get_negocio(tenant_id, auto.id)
             row = await self._session.execute(
                 text("""
-                    UPDATE crm_negocios SET corretor_id = :cid, etapa_id = :eid, valor = :valor, imovel_codigo = :imovel,
+                    UPDATE crm_negocios SET corretor_id = :cid, etapa_id = :eid, valor = :valor, valor_manual = (:valor > 0), imovel_codigo = :imovel,
                         fechamento_previsto = :fechamento, automatico = FALSE,
                         etapa_desde = CASE WHEN etapa_id <> :eid THEN NOW() ELSE etapa_desde END
                     WHERE id = :id RETURNING *
@@ -541,10 +541,10 @@ class CrmService:
         row = await self._session.execute(
             text("""
                 INSERT INTO crm_negocios (
-                    tenant_id, corretor_id, lead_id, etapa_id, titulo, valor,
+                    tenant_id, corretor_id, lead_id, etapa_id, titulo, valor, valor_manual,
                     imovel_codigo, fechamento_previsto
                 ) VALUES (
-                    :tid, :cid, :lid, :eid, :titulo, :valor, :imovel, :fechamento
+                    :tid, :cid, :lid, :eid, :titulo, :valor, (:valor > 0), :imovel, :fechamento
                 )
                 RETURNING *
             """),
@@ -605,7 +605,8 @@ class CrmService:
         mudou = etapa_row["id"] != atual["etapa_id"]
         row = await self._session.execute(
             text(f"""
-                UPDATE crm_negocios SET etapa_id = :eid, valor = COALESCE(:valor, valor)
+                UPDATE crm_negocios SET etapa_id = :eid, valor = COALESCE(:valor, valor),
+                    valor_manual = valor_manual OR (:valor IS NOT NULL)
                     {', etapa_desde = NOW()' if mudou else ''}
                 WHERE id = :id AND tenant_id = :tid RETURNING *
             """),
@@ -645,6 +646,7 @@ class CrmService:
                ia.corretor_nome AS im_corretor_nome, ia.ultima_interacao_em AS im_ultima_interacao,
                ia.n_interacoes AS im_n_interacoes, ia.n_visitas AS im_n_visitas, ia.n_propostas AS im_n_propostas,
                ia.qualificado AS im_qualificado, ia.previsao_fechamento_em AS im_previsao_fechamento,
+               ia.valor_tipo AS im_valor_tipo, ia.comissao AS im_comissao,
                EXTRACT(DAY FROM NOW() - n.etapa_desde)::int AS dias_na_etapa,
                (n.status = 'aberto' AND NOT n.automatico AND e.alerta_dias IS NOT NULL
                 AND n.etapa_desde < NOW() - make_interval(days => e.alerta_dias)) AS travado

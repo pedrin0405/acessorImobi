@@ -14,6 +14,8 @@ from uuid import UUID
 import structlog
 from sqlalchemy import text
 
+from app.domain.imovel.link import base_do_tenant, link_do_imovel
+
 from app.domain.imovel.sync import (
     carregar_credenciais,
     normalizar_imovel,
@@ -88,7 +90,7 @@ def montar_filtros(
     return " AND ".join(onde), params
 
 
-def _item(r) -> Dict[str, Any]:
+def _item(r, base: Optional[str] = None) -> Dict[str, Any]:
     return {
         "codigo": r.codigo_imoview, "titulo": r.titulo, "finalidade": r.finalidade, "tipo": r.tipo,
         "bairro": r.bairro, "cidade": r.cidade, "estado": r.estado,
@@ -96,7 +98,8 @@ def _item(r) -> Dict[str, Any]:
         "valor_condominio": float(r.valor_condominio) if r.valor_condominio is not None else None,
         "quartos": r.quartos, "suites": r.suites, "banheiros": r.banheiros, "vagas": r.vagas,
         "area_m2": float(r.area_m2) if r.area_m2 is not None else None,
-        "situacao": r.situacao, "destaque": r.destaque, "ativo": r.ativo, "link": r.link_anuncio,
+        "situacao": r.situacao, "destaque": r.destaque, "ativo": r.ativo,
+        "link": link_do_imovel(base, r.link_anuncio, r.codigo_imoview, r.titulo, r.tipo, r.bairro),
         "foto_url": r.foto_url or None,
     }
 
@@ -134,8 +137,9 @@ async def listar(
         {**params, "limite": por_pagina, "deslocamento": (pagina - 1) * por_pagina},
     )).fetchall()
 
+    base = await base_do_tenant(session, tenant_id)
     resposta: Dict[str, Any] = {
-        "itens": [_item(r) for r in linhas],
+        "itens": [_item(r, base) for r in linhas],
         "total": total,
         "pagina": pagina,
         "por_pagina": por_pagina,
@@ -154,7 +158,8 @@ async def obter_itens(session, tenant_id: UUID, codigos: List[int]) -> List[Dict
         text(f"SELECT {_COLUNAS} FROM imoveis_cache WHERE tenant_id = :tid AND codigo_imoview = ANY(:codigos)"),
         {"tid": str(tenant_id), "codigos": list(codigos)},
     )).fetchall()
-    por_codigo = {r.codigo_imoview: _item(r) for r in linhas}
+    base = await base_do_tenant(session, tenant_id)
+    por_codigo = {r.codigo_imoview: _item(r, base) for r in linhas}
     return [por_codigo[c] for c in codigos if c in por_codigo]
 
 
@@ -222,9 +227,9 @@ def texto_compartilhar(item: Dict[str, Any], extras: Dict[str, Any]) -> str:
     return "\n".join(linhas)
 
 
-def _detalhe(r) -> Dict[str, Any]:
+def _detalhe(r, base: Optional[str] = None) -> Dict[str, Any]:
     extras = r.dados_extras if isinstance(r.dados_extras, dict) else {}
-    item = _item(r)
+    item = _item(r, base)
     item["foto_url"] = extras.get("foto_url") or None
     detalhe = {
         **item,
@@ -263,7 +268,7 @@ async def obter_detalhe(session, tenant_id: UUID, codigo: int, cliente: Optional
     if not (extras.get("descricao") or extras.get("fotos")) and not extras.get("detalhe_buscado_em"):
         if await _completar_do_imoview(session, tenant_id, r, cliente):
             r = (await session.execute(text(_SELECAO_DETALHE), {"tid": str(tenant_id), "codigo": codigo})).first()
-    return _detalhe(r)
+    return _detalhe(r, await base_do_tenant(session, tenant_id))
 
 
 async def _completar_do_imoview(session, tenant_id: UUID, r, cliente: Optional[Any]) -> bool:

@@ -1,5 +1,6 @@
 "use client";
 
+import AvatarDoCorretor from "@/components/corretor/AvatarDoCorretor";
 import React, { useEffect, useState } from "react";
 import { CalendarClock, ChevronRight, Hourglass, MessageCircle, TriangleAlert } from "lucide-react";
 import { fetchApi } from "@/lib/api";
@@ -15,6 +16,8 @@ interface ConversaResumo {
 interface Pendencia {
   id: string;
   icone: React.ComponentType<{ className?: string; style?: React.CSSProperties }>;
+  corretorId?: string | null;
+  corretorNome?: string | null;
   titulo: string;
   detalhe: string;
   destino: string;
@@ -84,7 +87,7 @@ export default function Inicio({
           .slice(0, 3)
           .forEach((c) =>
             itens.push({
-              id: c.corretor_id, icone: MessageCircle, tom: "normal", destino: "conversas",
+              id: c.corretor_id, corretorId: c.corretor_id, corretorNome: c.corretor_nome, icone: MessageCircle, tom: "normal", destino: "conversas",
               titulo: `Conversa com ${c.corretor_nome || "corretor"}`,
               detalhe: `${c.nao_respondidas} sem resposta do agente`,
             })
@@ -138,7 +141,7 @@ export default function Inicio({
                   className="w-full flex items-center gap-4 px-5 py-4 text-left hover:bg-[var(--hover-solid)] transition-colors"
                   style={{ borderTop: i ? "1px solid var(--line)" : undefined }}
                 >
-                  <Icone className="w-[18px] h-[18px] shrink-0" style={{ color: p.tom === "alerta" ? "var(--warn)" : "var(--text-3)" }} />
+                  {p.corretorId ? <AvatarDoCorretor id={p.corretorId} nome={p.corretorNome ?? null} tamanho={32} /> : <Icone className="w-[18px] h-[18px] shrink-0" style={{ color: p.tom === "alerta" ? "var(--warn)" : "var(--text-3)" }} />}
                   <span className="flex-1 min-w-0">
                     <span className="block text-[15px] truncate" style={{ color: "var(--text)" }}>{p.titulo}</span>
                     <span className="block text-xs truncate" style={{ color: "var(--text-4)" }}>{p.detalhe}</span>

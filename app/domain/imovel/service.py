@@ -9,6 +9,8 @@ import structlog
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql import text
 
+from app.domain.imovel.link import base_do_tenant, link_do_imovel
+
 log = structlog.get_logger()
 
 
@@ -96,7 +98,11 @@ class ImovelService:
         """)
 
         rows = await self._session.execute(query, params)
-        imoveis = [Imovel(r) for r in rows.fetchall()]
+        linhas = rows.fetchall()
+        base = await base_do_tenant(self._session, tenant_id)
+        imoveis = [Imovel(r) for r in linhas]
+        for im, r in zip(imoveis, linhas):
+            im.link_anuncio = link_do_imovel(base, im.link_anuncio, im.codigo_imoview, getattr(r, "titulo", None), im.tipo, im.bairro)
 
         resultados = []
         for im in imoveis:

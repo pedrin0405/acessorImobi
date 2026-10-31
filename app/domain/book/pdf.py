@@ -209,6 +209,19 @@ class _Base:
         self.c.drawText(t)
         return larg
 
+    def link(self, x: float, y: float, url: str, cor: Color, tam: float = 8.5) -> None:
+        """'Ver anúncio no site' + endereço curto, clicável no PDF (abre a página do imóvel no site da imobiliária)."""
+        url = str(url)
+        curto = re.sub(r"^https?://(www\.)?", "", url)
+        curto = re.sub(r"/imovel/[^/]+/", "/imovel/…/", curto)
+        rotulo = "Ver anúncio no site"
+        larg1 = self.txt(x, y, rotulo, "AC-Bold", tam, cor)
+        larg2 = self.txt(x + larg1 + 7, y, curto[:48], "AC-Reg", tam - 0.5, cor)
+        self.c.linkURL(url, (x, self._y(y + tam * 0.3), x + larg1 + 7 + larg2, self._y(y - tam)), relative=0)
+        self.c.setStrokeColor(cor)
+        self.c.setLineWidth(0.5)
+        self.c.line(x, self._y(y + 2), x + larg1, self._y(y + 2))
+
     def quebrar(self, s: Any, fonte: str, tam: float, largura: float) -> List[str]:
         return simpleSplit(_t(s, fonte), fonte, tam, largura)
 
@@ -370,7 +383,7 @@ class Editorial(_Base):
             if rua and yt < limite - 14:
                 yt = self.bloco(x2, yt + 10, "Endereço  " + rua, l2, "AC-Med", 8.2, 12, self.suave, 2)
         if cfg["mostrar_link"] and im.get("link"):
-            self.txt(x2, max(yt, fim_esq - 4) + 14 if not extras else min(max(yt, fim_esq - 4) + 14, limite), "Anúncio completo  " + str(im["link"])[:60], "AC-Semi", 8, self.sec)
+            self.link(x2, max(yt, fim_esq - 4) + 14 if not extras else min(max(yt, fim_esq - 4) + 14, limite), im["link"], self.sec, 8.5)
         # tira de fotos
         if extras:
             n = len(extras)
@@ -490,7 +503,7 @@ class Vitrine(_Base):
         if cfg["mostrar_descricao"] and im.get("descricao") and y < 700:
             y = self.bloco(M, y + 6, " ".join(str(im["descricao"]).split()), LARG - 2 * M - 70, "AC-Reg", 9.2, 14, _mistura(self.fundo, self.tinta, 0.76), max(1, min(5, int((780 - y) // 14))))
         if cfg["mostrar_link"] and im.get("link"):
-            self.txt(M, 800, str(im["link"])[:70], "AC-Semi", 8, self.sec)
+            self.link(M, 800, im["link"], self.sec, 8.5)
         self.pagina += 1
         self.txt(LARG - M, 817, f"{self.pagina:02d}  /  CÓD. {im.get('codigo')}", "AC-Semi", 7, self.suave, "d", 1)
         self.proxima()
@@ -601,7 +614,7 @@ class Ficha(_Base):
                 y += 22
             self.fio(x, y, x + larg)
             if cfg["mostrar_link"] and im.get("link"):
-                self.txt(x, topo + altura - 40, str(im["link"])[:44], "AC-Semi", 7, self.sec)
+                self.link(x, topo + altura - 40, im["link"], self.sec, 7.5)
             if i == 0 and len(lote) > 1:
                 self.fio(M, 56 + altura, LARG - M)
         self.pagina += 1

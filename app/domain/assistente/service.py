@@ -20,9 +20,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.domain.conversa.service import ConversaService
 from app.domain.crm.service import CrmService, resumo_perfil
+from app.domain.book import servico as servico_book
+from app.domain.imovel import consulta as consulta_imoveis
 from app.domain.imovel.service import ImovelService
 from app.integration.llm.gemini import GeminiClient, GeminiError
 from app.shared.config import get_settings
+from app.shared.storage import guardar_midia, ler_midia
 
 log = structlog.get_logger()
 settings = get_settings()
@@ -74,6 +77,11 @@ ASSISTENTE_TOOLS = [
                     "quartos": {"type": "integer", "description": "Mínimo de quartos."},
                     "valor_max": {"type": "number", "description": "Valor máximo em reais."},
                     "limite": {"type": "integer", "description": "Quantidade (padrão 5, máximo 8)."},
+                    "formato": {
+                        "type": "string", "enum": ["cards", "book"],
+                        "description": "'cards' (padrão): cartões com foto, dados e link. 'book': PDF profissional com todas as fotos; use quando pedirem pdf, book, catálogo ou apresentação.",
+                    },
+                    "titulo": {"type": "string", "description": "Título da capa do book (ex.: 'Imóveis na Orla'). Opcional."},
                 },
                 "required": ["finalidade"],
             },
@@ -158,6 +166,7 @@ class AssistenteService:
         self._session = session
         self._tenant_id = tenant_id
         self._admin_id = admin_id
+        self._blocos: List[Dict[str, Any]] = []
         self._crm = CrmService(session)
 
     # --- Conversas ----------------------------------------------------------
@@ -210,7 +219,7 @@ class AssistenteService:
         await self._conversa(conversa_id)
         rows = await self._session.execute(
             text("""
-                SELECT id, papel, conteudo, anexos, created_at FROM assistente_mensagens
+                SELECT id, papel, conteudo, anexos, blocos, created_at FROM assistente_mensagens
                 WHERE conversa_id = :cid ORDER BY created_at
             """),
             {"cid": str(conversa_id)},
@@ -218,7 +227,8 @@ class AssistenteService:
         return [
             {
                 "id": str(r.id), "papel": r.papel, "conteudo": r.conteudo,
-                "anexos": r.anexos or [], "criada_em": r.created_at.isoformat(),
+                "anexos": r.anexos or [], "blocos": self._publicar_blocos(str(r.id), r.blocos or []),
+                "criada_em": r.created_at.isoformat(),
             }
             for r in rows.fetchall()
         ]
@@ -230,25 +240,51 @@ class AssistenteService:
             {"id": str(conversa_id), "tid": str(self._tenant_id)},
         )
 
-    async def _salvar(self, conversa_id: UUID, papel: str, conteudo: str, anexos: Optional[List[Dict[str, str]]] = None) -> Dict[str, Any]:
+    async def _salvar(
+        self, conversa_id: UUID, papel: str, conteudo: str, anexos: Optional[List[Dict[str, str]]] = None,
+        blocos: Optional[List[Dict[str, Any]]] = None,
+    ) -> Dict[str, Any]:
         import json
 
         row = await self._session.execute(
             text("""
-                INSERT INTO assistente_mensagens (tenant_id, conversa_id, papel, conteudo, anexos)
-                VALUES (:tid, :cid, :papel, :conteudo, CAST(:anexos AS jsonb))
+                INSERT INTO assistente_mensagens (tenant_id, conversa_id, papel, conteudo, anexos, blocos)
+                VALUES (:tid, :cid, :papel, :conteudo, CAST(:anexos AS jsonb), CAST(:blocos AS jsonb))
                 RETURNING id, created_at
             """),
             {
                 "tid": str(self._tenant_id), "cid": str(conversa_id), "papel": papel,
-                "conteudo": conteudo, "anexos": json.dumps(anexos or []),
+                "conteudo": conteudo, "anexos": json.dumps(anexos or []), "blocos": json.dumps(blocos or []),
             },
         )
         r = row.first()
         return {
             "id": str(r.id), "papel": papel, "conteudo": conteudo,
-            "anexos": anexos or [], "criada_em": r.created_at.isoformat(),
+            "anexos": anexos or [], "blocos": self._publicar_blocos(str(r.id), blocos or []), "criada_em": r.created_at.isoformat(),
         }
+
+    @staticmethod
+    def _publicar_blocos(mensagem_id: str, blocos: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Blocos como o portal os vê: o PDF vira um endereço da API (a referência do storage nunca sai)."""
+        saida = []
+        for b in blocos:
+            if b.get("tipo") == "book":
+                b = {k: v for k, v in b.items() if k != "ref"}
+                b["url"] = f"/admin/assistente/mensagens/{mensagem_id}/book"
+            saida.append(b)
+        return saida
+
+    async def arquivo_do_book(self, mensagem_id: UUID) -> Optional[Tuple[bytes, str, str]]:
+        r = (await self._session.execute(
+            text("SELECT blocos FROM assistente_mensagens WHERE id = :id AND tenant_id = :tid"),
+            {"id": str(mensagem_id), "tid": str(self._tenant_id)},
+        )).first()
+        for b in (r.blocos if r else None) or []:
+            if b.get("tipo") == "book" and b.get("ref"):
+                lido = await ler_midia(b["ref"])
+                if lido:
+                    return lido[0], lido[1], b.get("arquivo") or "book.pdf"
+        return None
 
     # --- Contexto -----------------------------------------------------------
 
@@ -331,7 +367,8 @@ class AssistenteService:
             "- Use os dados abaixo e as ferramentas. Nunca invente nomes, valores, imóveis ou números. Se o dado "
             "não existe, diga isso e sugira o próximo passo.\n"
             "- Formatação permitida: **negrito**, listas com '-' e títulos curtos com '##'. Sem tabelas.\n"
-            "- Para imóveis, use sempre buscar_imoveis ou match_lead. Para clientes, buscar_leads.\n"
+            "- Para imóveis, use sempre buscar_imoveis ou match_lead: os cartões com foto e link aparecem sozinhos abaixo da sua resposta. "
+            "Se pedirem PDF, book, catálogo ou apresentação, use buscar_imoveis com formato 'book'. Para clientes, buscar_leads.\n"
             "- Você só lê dados: não cadastra, não agenda e não envia mensagens. Se pedirem isso, explique que o "
             "corretor faz pelo WhatsApp com o agente, ou pelo portal.\n"
             "- Quando pedirem rascunho para um cliente (WhatsApp, objeção, tradução), escreva o texto pronto para "
@@ -343,6 +380,32 @@ class AssistenteService:
         )
 
     # --- Ferramentas --------------------------------------------------------
+
+    async def _anexar_imoveis(self, codigos: List[int], book: bool, titulo: Optional[str]) -> str:
+        """Guarda os blocos que a resposta mostrará (cartões ou book em PDF) e devolve a nota para a IA."""
+        itens = await consulta_imoveis.obter_itens(self._session, self._tenant_id, codigos)
+        cartoes = [
+            {k: i.get(k) for k in ("codigo", "titulo", "finalidade", "tipo", "bairro", "cidade", "valor", "quartos", "suites", "vagas", "area_m2", "foto_url", "link")}
+            for i in itens
+        ]
+        if book and cartoes:
+            try:
+                r = await servico_book.gerar_book(self._session, self._tenant_id, [c["codigo"] for c in cartoes], None, titulo, None)
+                ref = await guardar_midia(self._tenant_id, self._admin_id or self._tenant_id, r["pdf"], "pdf", "application/pdf")
+                if ref:
+                    self._blocos.append({
+                        "tipo": "book", "titulo": r["titulo"], "modelo": r["modelo"], "arquivo": r["arquivo"], "ref": ref,
+                        "imoveis": cartoes,
+                    })
+                    return "\n[O book em PDF com esses imóveis já foi gerado e aparece anexado abaixo da sua resposta.]"
+            except Exception as e:  # noqa: BLE001 - sem o PDF a resposta ainda leva os cartões
+                log.warning("assistente_book_falhou", error=str(e)[:200])
+        if cartoes:
+            self._blocos.append({"tipo": "imoveis", "titulo": titulo, "imoveis": cartoes})
+            if book:
+                return "\n[ATENÇÃO: não foi possível gerar o PDF agora; no lugar, os cartões com foto e link aparecem abaixo. Avise o administrador disso.]"
+            return "\n[Os cartões com foto, dados e link desses imóveis aparecem abaixo da sua resposta.]"
+        return ""
 
     async def _executar(self, nome: str, args: Dict[str, Any]) -> str:
         if nome == "buscar_leads":
@@ -369,7 +432,12 @@ class AssistenteService:
                 valor_max=args.get("valor_max"),
                 limit=limite,
             )
-            return "\n".join(_linha_imovel(i) for i in imoveis) or "Nenhum imóvel encontrado com esses critérios."
+            if not imoveis:
+                return "Nenhum imóvel encontrado com esses critérios."
+            texto = "\n".join(_linha_imovel(i) for i in imoveis)
+            return texto + await self._anexar_imoveis(
+                [i["codigo"] for i in imoveis], args.get("formato") == "book", (args.get("titulo") or "").strip()[:80] or None,
+            )
         if nome == "match_lead":
             leads = await self._crm.listar_leads(self._tenant_id, termo=args.get("cliente"), limit=1, incluir_sem_responsavel=True)
             if not leads:
@@ -379,7 +447,10 @@ class AssistenteService:
                 return f"{lead['nome']} ainda não tem perfil de busca registrado."
             imoveis = await self._crm.match(self._tenant_id, lead)
             cabecalho = f"Perfil de {lead['nome']}: {resumo_perfil(lead['perfil'])}"
-            return cabecalho + "\n" + ("\n".join(_linha_imovel(i) for i in imoveis) or "Nada na carteira combina hoje.")
+            texto = cabecalho + "\n" + ("\n".join(_linha_imovel(i) for i in imoveis) or "Nada na carteira combina hoje.")
+            if imoveis:
+                texto += await self._anexar_imoveis([i["codigo"] for i in imoveis], False, None)
+            return texto
         return "Ferramenta desconhecida."
 
     # --- Resposta -----------------------------------------------------------
@@ -391,6 +462,7 @@ class AssistenteService:
         if not texto and not meta:
             raise AssistenteErro("Escreva uma pergunta ou anexe um arquivo.")
 
+        self._blocos = []
         historico = await self.mensagens(conversa_id)
         pergunta = await self._salvar(conversa_id, "user", texto or "(arquivo anexado)", meta)
 
@@ -415,7 +487,10 @@ class AssistenteService:
                     argumentos=chamada.get("args") or {}, resultado=resultado,
                     instrucao=(
                         "Responda ao administrador com base no resultado acima, sem inventar dados e sem "
-                        "repetir a lista bruta: destaque o que importa e sugira o próximo passo."
+                        "repetir a lista bruta: destaque o que importa e sugira o próximo passo. Se o resultado "
+                        "diz que cartões ou um book foram anexados, não liste os imóveis em texto: comente em "
+                        "uma ou duas frases o que foi encontrado e diga que estão logo abaixo; se foram cartões, "
+                        "ofereça montar o book em PDF."
                     ),
                     function_call_part=resposta.get("function_call_part"), temperature=0.5, max_tokens=1500,
                 )
@@ -430,7 +505,7 @@ class AssistenteService:
         if not resposta_texto:
             raise AssistenteErro("Não consegui formular uma resposta. Pode reformular a pergunta?", status=502)
 
-        resposta_msg = await self._salvar(conversa_id, "assistant", resposta_texto)
+        resposta_msg = await self._salvar(conversa_id, "assistant", resposta_texto, None, self._blocos)
         await self._session.execute(
             text("UPDATE assistente_conversas SET titulo = :t, updated_at = NOW() WHERE id = :id"),
             {"t": titulo, "id": str(conversa_id)},

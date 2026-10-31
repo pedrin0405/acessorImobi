@@ -20,12 +20,15 @@ export default function Conversas({
   onRecarregar,
   onAuthError,
   onIr,
+  corretorInicial,
 }: {
   conversas: ConversaResumo[];
   carregando: boolean;
   onRecarregar: () => void;
   onAuthError: (e: unknown) => boolean;
   onIr: (tab: string) => void;
+  /** Corretor a abrir assim que a lista carregar (vem do painel do corretor). */
+  corretorInicial?: string | null;
 }) {
   const [selId, setSelId] = useState<string | null>(null);
   const [mensagens, setMensagens] = useState<MensagemChat[]>([]);
@@ -112,6 +115,14 @@ export default function Conversas({
     }
     buscarMensagens(c.corretor_id, false);
   };
+
+  const iniciado = useRef<string | null>(null);
+  useEffect(() => {
+    if (!corretorInicial || iniciado.current === corretorInicial) return;
+    const alvo = conversas.find((c) => c.corretor_id === corretorInicial);
+    if (alvo) { iniciado.current = corretorInicial; abrir(alvo); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [corretorInicial, conversas]);
 
   // Mensagens novas chegam sem recarregar a tela (a aba parada não consulta).
   useEffect(() => {
@@ -225,7 +236,7 @@ export default function Conversas({
                 <button type="button" onClick={() => setSelId(null)} aria-label="Voltar para as conversas" className="lg:hidden p-2 -ml-2 rounded-lg hover:bg-[var(--hover-solid)]" style={{ color: "var(--text-3)" }}>
                   <ArrowLeft className="w-5 h-5" />
                 </button>
-                <Avatar nome={sel.corretor_nome} tamanho={38} />
+                <Avatar nome={sel.corretor_nome} id={sel.corretor_id} tamanho={38} />
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-[15px] font-semibold" style={{ color: "var(--text)" }}>{sel.corretor_nome || "Corretor"}</p>
                   <p className="truncate text-xs" style={{ color: "var(--text-3)" }}>

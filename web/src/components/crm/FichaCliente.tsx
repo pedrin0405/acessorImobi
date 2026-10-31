@@ -1,5 +1,6 @@
 "use client";
 
+import AvatarDoCorretor from "@/components/corretor/AvatarDoCorretor";
 import React, { useCallback, useEffect, useState } from "react";
 import { CalendarDays, Globe, Home, Mail, MapPin, Phone, X } from "lucide-react";
 import { AtendimentoImoview, brl, Perfil } from "@/lib/crm";
@@ -176,7 +177,7 @@ export default function FichaCliente({
       {erro && <div className="mt-3"><Aviso tom="erro">{erro}</Aviso></div>}
 
       <Secao titulo="Responsável">
-        <p className="text-sm mb-2" style={{ color: "var(--text-3)" }}>{ficha.corretor_nome ? <>Com <strong style={{ color: "var(--text)" }}>{ficha.corretor_nome}</strong></> : "Ninguém ainda: o cliente está no funil, na etapa Lead, aguardando um corretor."}</p>
+        <p className="text-sm mb-2" style={{ color: "var(--text-3)" }}>{ficha.corretor_nome ? <span className="inline-flex items-center gap-2"><AvatarDoCorretor id={ficha.corretor_id} nome={ficha.corretor_nome} tamanho={28} />Com <strong style={{ color: "var(--text)" }}>{ficha.corretor_nome}</strong></span> : "Ninguém ainda: o cliente está no funil, na etapa Lead, aguardando um corretor."}</p>
         <div className="flex gap-2">
           <Seletor aria-label="Atribuir este cliente a" value={destino} onChange={(e) => setDestino(e.target.value)}><option value="">{ficha.corretor_nome ? "Passar para…" : "Atribuir a…"}</option>{corretores.filter((c) => c.id !== ficha.corretor_id).map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}</Seletor>
           <Botao variante="primario" onClick={() => { onAtribuir(ficha.id, destino); setDestino(""); }} disabled={!destino} carregando={atribuindo}>Atribuir</Botao>

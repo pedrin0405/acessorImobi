@@ -36,6 +36,7 @@ export interface Negocio {
   im_midia?: string | null;
   im_campanha?: string | null;
   im_termometro?: "Quente" | "Morno" | "Frio" | "Indefinido" | null;
+  corretor_id?: string | null;
   im_corretor_nome?: string | null;
   im_ultima_interacao?: string | null;
   im_n_interacoes?: number | null;
@@ -101,6 +102,7 @@ export interface Lead {
   status: string;
   perfil: Perfil;
   observacoes: string | null;
+  corretor_id?: string | null;
   corretor_nome: string | null;
   negocios_abertos: number;
   updated_at: string;
@@ -114,6 +116,7 @@ export interface Atividade {
   local: string | null;
   imovel_codigo: number | null;
   lead_nome: string | null;
+  corretor_id?: string | null;
   corretor_nome: string | null;
   atrasada: boolean;
 }

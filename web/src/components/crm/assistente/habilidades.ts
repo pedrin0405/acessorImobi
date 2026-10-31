@@ -1,6 +1,6 @@
 import type { LucideIcon } from "lucide-react";
 import {
-  BarChart3, Bot, CircleHelp, FileText, Languages, Link2, MessageSquareText, Search, ShieldQuestion, Sunrise, Target, TrendingUp,
+  BarChart3, BookOpen, Bot, CircleHelp, FileText, Home, Languages, Link2, MessageSquareText, Search, ShieldQuestion, Sunrise, Target, TrendingUp,
 } from "lucide-react";
 
 export interface Habilidade {
@@ -36,6 +36,16 @@ export const HABILIDADES: Habilidade[] = [
     id: "match", grupo: "Imóveis", titulo: "Match imóvel ↔ lead",
     descricao: "Cruzo o perfil do cliente com a carteira de imóveis em segundos.",
     prompt: "Quais imóveis combinam com o cliente ", icone: Link2,
+  },
+  {
+    id: "opcoes-imoveis", grupo: "Imóveis", titulo: "Opções de imóveis com foto",
+    descricao: "Cartões com foto, dados e link do anúncio, prontos para enviar a um corretor.",
+    prompt: "Me dê 3 opções de imóveis para venda na Orla", icone: Home,
+  },
+  {
+    id: "book-imoveis", grupo: "Imóveis", titulo: "Book de imóveis em PDF",
+    descricao: "PDF profissional com fotos e dados dos imóveis, para baixar ou enviar.",
+    prompt: "Monte um book em PDF de 5 imóveis para venda na ", icone: BookOpen,
   },
   {
     id: "descricao-imovel", grupo: "Imóveis", titulo: "Descrição de imóvel",

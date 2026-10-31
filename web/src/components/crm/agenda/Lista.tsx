@@ -1,5 +1,6 @@
 "use client";
 
+import AvatarDoCorretor from "@/components/corretor/AvatarDoCorretor";
 import React, { useMemo } from "react";
 import { Check, X, CalendarDays } from "lucide-react";
 import { ICONES_ATIVIDADE } from "@/components/configuracoes/secoes/Personalizacao";
@@ -40,6 +41,7 @@ export default function Lista({ atividades, tipos, onAbrir, onStatus, apenasAtra
                     <span className="min-w-0"><span className="block text-sm font-medium truncate" style={{ color: "var(--text)" }}>{a.titulo}</span>
                       <span className="block text-xs truncate" style={{ color: "var(--text-3)" }}>{[t?.nome, a.corretor_nome, a.lead_nome && `cliente ${a.lead_nome}`, a.local, a.imovel_codigo && `imóvel ${a.imovel_codigo}`, a.atrasada && a.inicio && `era ${new Date(a.inicio).toLocaleDateString("pt-BR")}`].filter(Boolean).join(" · ")}</span></span>
                   </button>
+                  {a.corretor_id && <span className="hidden sm:block" title={a.corretor_nome || undefined}><AvatarDoCorretor id={a.corretor_id} nome={a.corretor_nome} tamanho={26} /></span>}
                   <button type="button" title="Concluir" aria-label={`Concluir ${a.titulo}`} onClick={() => onStatus(a, "concluida")} className="p-2 rounded-lg hover:bg-[var(--hover-solid)]" style={{ color: "var(--accent-text)" }}><Check className="w-4 h-4" /></button>
                   <button type="button" title="Cancelar" aria-label={`Cancelar ${a.titulo}`} onClick={() => onStatus(a, "cancelada")} className="p-2 rounded-lg hover:bg-[var(--hover-solid)]" style={{ color: "var(--text-3)" }}><X className="w-4 h-4" /></button>
                 </li>

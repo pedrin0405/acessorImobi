@@ -91,3 +91,20 @@ async def test_modelos_crud_e_regras():
         await m.definir_padrao(tid, UUID(padrao["id"]))
         await m.excluir(tid, UUID(novo["id"]))
         assert (await m.obter(tid, UUID(novo["id"])))["id"] == padrao["id"]  # id inexistente cai no padrão
+
+
+@pytest.mark.parametrize("layout", ["classico", "galeria", "compacto"])
+def test_pdf_leva_o_link_do_anuncio_clicavel(layout):
+    link = "https://www.quadrabrasileira.com.br/imovel/sobrado-3-suites-piscina/15746"
+    pdf = renderizar(cfg.normalizar({"layout": layout}), [{**IMOVEL, "link": link}], EMPRESA)
+    assert b"/URI" in pdf and link.encode() in pdf
+    sem_link = renderizar(cfg.normalizar({"layout": layout, "mostrar_link": False}), [{**IMOVEL, "link": link}], EMPRESA)
+    assert link.encode() not in sem_link
+
+
+def test_link_vale_na_leitura_mesmo_sem_sync():
+    from app.domain.imovel.link import link_do_imovel
+    base = "https://www.quadrabrasileira.com.br"
+    assert link_do_imovel(base, None, 15746, "Sobrado 3 suítes + piscina", "Sobrado", "Plano Diretor Sul") == f"{base}/imovel/sobrado-3-suites-piscina/15746"
+    assert link_do_imovel(base, "https://x.com/a", 1, "t") == "https://x.com/a"  # o que já está guardado vence
+    assert link_do_imovel(None, None, 15746, "t") is None  # sem site configurado não inventa endereço
