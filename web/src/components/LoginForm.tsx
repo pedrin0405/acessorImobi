@@ -144,7 +144,7 @@ export default function LoginForm({ mode, onSuccess, compact, perfis, onPerfil }
         </div>
       )}
 
-      <form onSubmit={submit} className="space-y-4">
+      <form onSubmit={submit} data-entrada className="space-y-4">
         {mode === "developer" && senhaCampo("dev-senha", senha, setSenha, "Senha de desenvolvedor")}
 
         {mode === "admin" && (

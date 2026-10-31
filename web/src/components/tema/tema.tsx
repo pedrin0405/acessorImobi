@@ -1,5 +1,6 @@
 "use client";
 
+import Brilho from "@/components/divulgacao/Brilho";
 import React, { useEffect, useState } from "react";
 import { Moon, Sun } from "lucide-react";
 import { MarcaSimbolo } from "@/components/marca/Marca";
@@ -90,6 +91,7 @@ const PARTICULAS = [
 function PainelDaMarca() {
   return (
     <div className="hidden lg:flex relative flex-col justify-between overflow-hidden" style={{ background: "#030606" }}>
+      <Brilho />
       <div aria-hidden className="absolute inset-0" style={{ background: "radial-gradient(420px 360px at 50% 34%, rgb(70 190 140 / .30), transparent 70%)" }} />
       {PARTICULAS.map((p, i) => (
         <span key={i} aria-hidden className="entrada-particula absolute rounded-full" style={{ left: `${p.x}%`, top: `${p.y}%`, width: p.t, height: p.t, background: "#7be0b3", animationDelay: `${p.d}s`, animationDuration: `${p.s}s` }} />

@@ -1,4 +1,5 @@
 import React from "react";
+import Brilho from "./Brilho";
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
 import { MarcaSimbolo } from "@/components/marca/Marca";
@@ -7,6 +8,7 @@ import Revelar from "./Revelar";
 export default function ChamadaFinal() {
   return (
     <section className="relative overflow-hidden" style={{ background: "#040807", color: "#d7e3df" }} aria-labelledby="dv-final">
+      <Brilho />
       <div aria-hidden className="dv-luz pointer-events-none absolute inset-0" style={{ background: "radial-gradient(900px 560px at 50% 110%, rgb(52 130 96 / .6), transparent 65%), radial-gradient(500px 340px at 50% 20%, rgb(70 190 140 / .18), transparent 70%)" }} />
       <Revelar className="relative mx-auto max-w-[880px] px-5 sm:px-8 py-28 lg:py-36 text-center">
         <MarcaSimbolo animada cor="#8fe9be" className="w-16 h-auto mx-auto" />

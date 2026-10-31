@@ -1,4 +1,5 @@
 import React from "react";
+import Brilho from "./Brilho";
 import Revelar from "./Revelar";
 
 const DADOS = [
@@ -10,6 +11,7 @@ const DADOS = [
 export default function Integracao() {
   return (
     <section className="relative overflow-hidden" style={{ background: "#040807", color: "#d7e3df" }} aria-labelledby="dv-imoview">
+      <Brilho />
       <div aria-hidden className="pointer-events-none absolute inset-0" style={{ background: "radial-gradient(700px 420px at 15% 100%, rgb(52 130 96 / .35), transparent 65%), radial-gradient(600px 380px at 90% 0%, rgb(40 110 80 / .3), transparent 65%)" }} />
       <div className="relative mx-auto max-w-[1200px] px-5 sm:px-8 py-24 lg:py-28">
         <Revelar>

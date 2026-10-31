@@ -1,4 +1,5 @@
 import React from "react";
+import Brilho from "./Brilho";
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
 import DemoWhatsApp from "./DemoWhatsApp";
@@ -11,6 +12,7 @@ const PARTICULAS = [
 export default function Heroi() {
   return (
     <section className="relative overflow-hidden" style={{ background: "#040807", color: "#d7e3df" }} aria-labelledby="dv-titulo">
+      <Brilho />
       <div
         aria-hidden
         className="dv-luz pointer-events-none absolute inset-0"
