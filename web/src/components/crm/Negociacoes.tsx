@@ -7,6 +7,8 @@ import {
 } from "lucide-react";
 import { brl, COR_ETAPA, CorretorOpcao, corretoresAtivos, Etapa, Funil, FunilEtapa, Negocio } from "@/lib/crm";
 import { fetchApi } from "@/lib/api";
+import FichaCliente from "@/components/crm/FichaCliente";
+import { ResumoImoview, TermometroSelo, tempoAtras } from "@/components/crm/FluxoBits";
 import { Aviso, Botao, Entrada, Seletor, Selo, useApi } from "@/components/configuracoes/ui";
 
 type Visao = "kanban" | "lista" | "previsao";
@@ -31,6 +33,8 @@ const fone = (t?: string | null) => {
 export default function Negociacoes({ onAuthError }: { onAuthError: (e: unknown) => boolean }) {
   const api = useApi(onAuthError);
   const [visao, setVisao] = useState<Visao>("kanban");
+  const [fichaId, setFichaId] = useState<string | null>(null);
+  const [atribuindo, setAtribuindo] = useState(false);
   const [funil, setFunil] = useState<Funil | null>(null);
   const [etapas, setEtapas] = useState<Etapa[]>([]);
   const [corretores, setCorretores] = useState<CorretorOpcao[]>([]);
@@ -158,7 +162,7 @@ export default function Negociacoes({ onAuthError }: { onAuthError: (e: unknown)
   const totais = funil?.totais;
   const maxEtapa = Math.max(...colunas.map((e) => e.total), 1);
   const filtrando = !!(termo || corretor || status !== "aberto");
-  const rotuloStatus = { aberto: ["negócio aberto", "negócios abertos"], ganho: ["negócio ganho", "negócios ganhos"], perdido: ["negócio perdido", "negócios perdidos"], todos: ["negócio", "negócios"] }[status];
+  const rotuloStatus = { aberto: ["lead em aberto", "leads em aberto"], ganho: ["lead ganho", "leads ganhos"], perdido: ["lead perdido", "leads perdidos"], todos: ["lead", "leads"] }[status];
 
   return (
     <div>
@@ -166,7 +170,7 @@ export default function Negociacoes({ onAuthError }: { onAuthError: (e: unknown)
         <div className="flex items-center gap-3">
           <span className="w-11 h-11 rounded-xl flex items-center justify-center" style={{ background: "var(--accent-soft)", color: "var(--accent-text)" }}><Handshake className="w-5 h-5" aria-hidden /></span>
           <div>
-            <h1 className="text-2xl font-semibold tracking-tight" style={{ color: "var(--text)" }}>Vendas</h1>
+            <h1 className="text-2xl font-semibold tracking-tight" style={{ color: "var(--text)" }}>Fluxo</h1>
             <p className="text-sm" style={{ color: "var(--text-3)" }}>
               {totais ? <>{colunas.length} etapas · {n(totais.quantidade)} {totais.quantidade === 1 ? rotuloStatus[0] : rotuloStatus[1]} · {brl(totais.total)} · previsão {brl(totais.esperado)}{totais.travados > 0 && <span style={{ color: "var(--warn)" }}> · {n(totais.travados)} parado{totais.travados > 1 ? "s" : ""}</span>}</> : "Carregando…"}
             </p>
@@ -174,13 +178,13 @@ export default function Negociacoes({ onAuthError }: { onAuthError: (e: unknown)
         </div>
         <div className="flex flex-wrap gap-2">
           <Botao onClick={() => { setRascunho(etapas.map((e) => ({ ...e }))); setConfigOpen(true); }}><Settings2 className="w-4 h-4" aria-hidden /> Configurações</Botao>
-          <Botao variante="primario" onClick={() => abrirNovo()}><Plus className="w-4 h-4" aria-hidden /> Novo negócio</Botao>
+          <Botao variante="primario" onClick={() => abrirNovo()}><Plus className="w-4 h-4" aria-hidden /> Novo atendimento</Botao>
         </div>
       </header>
 
       <div className="flex flex-wrap items-center gap-2 mb-5">
         <label className="relative flex-1 min-w-[14rem] max-w-md">
-          <span className="sr-only">Buscar negócio</span>
+          <span className="sr-only">Buscar no fluxo</span>
           <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4" style={{ color: "var(--text-4)" }} aria-hidden />
           <Entrada type="search" value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Nome, telefone ou título" className="!pl-10 !rounded-full" />
         </label>
@@ -208,7 +212,7 @@ export default function Negociacoes({ onAuthError }: { onAuthError: (e: unknown)
       {erro && <div className="mb-4"><Aviso tom="erro">{erro}</Aviso></div>}
       {totais && totais.quantidade === 0 && !carregando && (
         <p className="mb-4 text-sm" style={{ color: "var(--text-3)" }}>
-          {filtrando ? "Nenhum negócio com esses filtros." : "Nenhum negócio ainda. Todo cliente novo entra aqui, na etapa Lead, automaticamente."}
+          {filtrando ? "Nenhum lead com esses filtros." : "Nenhum lead no fluxo ainda. Todo cliente novo entra aqui, na etapa Lead, automaticamente."}
         </p>
       )}
 
@@ -243,7 +247,7 @@ export default function Negociacoes({ onAuthError }: { onAuthError: (e: unknown)
                   </div>
                   <ul className="flex-1 overflow-y-auto space-y-2 pr-0.5">
                     {c.negocios.length === 0 && (
-                      <li className="rounded-xl py-8 text-center text-xs" style={{ border: "1px dashed var(--line-2)", color: "var(--text-4)" }}>Arraste negócios aqui</li>
+                      <li className="rounded-xl py-8 text-center text-xs" style={{ border: "1px dashed var(--line-2)", color: "var(--text-4)" }}>Arraste leads aqui</li>
                     )}
                     {c.negocios.map((nv) => (
                       <li
@@ -255,7 +259,7 @@ export default function Negociacoes({ onAuthError }: { onAuthError: (e: unknown)
                         style={{ background: "var(--card-2)", border: `1px solid ${nv.travado ? "var(--warn)" : "var(--line)"}`, opacity: arrastando?.id === nv.id ? 0.4 : 1 }}
                       >
                         <div className="flex justify-between gap-2">
-                          <span className="text-sm font-medium truncate" style={{ color: "var(--text)" }}>{nv.lead_nome}</span>
+                          <button type="button" onClick={() => setFichaId(nv.lead_id)} title="Abrir ficha do lead" className="text-sm font-medium truncate text-left hover:underline" style={{ color: "var(--text)" }}>{nv.lead_nome}</button>
                           {nv.valor > 0 && <span className="text-xs font-semibold tabular-nums shrink-0" style={{ color: "var(--text-2)" }}>{brl(nv.valor)}</span>}
                         </div>
                         <p className="text-[11px] truncate" style={{ color: "var(--text-3)" }}>{[fone(nv.lead_telefone), nv.lead_email].filter(Boolean).join(" · ") || "Sem contato"}</p>
@@ -266,14 +270,14 @@ export default function Negociacoes({ onAuthError }: { onAuthError: (e: unknown)
                           </span>
                           <span className="flex items-center gap-1 shrink-0" style={{ color: nv.travado ? "var(--warn)" : undefined }}><Clock className="w-3 h-3" aria-hidden />{nv.dias_na_etapa}d</span>
                         </div>
-                        {nv.imoview_fase ? <div><Selo tom="info">Imoview · fase {nv.imoview_fase}</Selo></div> : null}
+                        {nv.imoview_situacao ? <ResumoImoview nv={nv} /> : null}
                         {status === "aberto" && (
                           <div className="flex items-center gap-1 pt-0.5">
-                            <Seletor aria-label={`Mover negócio de ${nv.lead_nome}`} value={nv.etapa_id} onChange={(e) => { const d = colunas.find((x) => x.etapa_id === e.target.value); if (d) moverPara(nv, d); }} className="!py-1 !text-[11px] !rounded-lg flex-1 min-w-0">
+                            <Seletor aria-label={`Mover lead de ${nv.lead_nome}`} value={nv.etapa_id} onChange={(e) => { const d = colunas.find((x) => x.etapa_id === e.target.value); if (d) moverPara(nv, d); }} className="!py-1 !text-[11px] !rounded-lg flex-1 min-w-0">
                               {colunas.map((x) => <option key={x.etapa_id} value={x.etapa_id}>{x.etapa}</option>)}
                             </Seletor>
-                            <button type="button" title="Marcar como ganho" aria-label={`Ganhar negócio de ${nv.lead_nome}`} onClick={() => atualizar(nv, { status: "ganho" })} className="p-1.5 rounded-lg hover:bg-[var(--hover-solid)]" style={{ color: "var(--accent-text)" }}><Trophy className="w-4 h-4" /></button>
-                            <button type="button" title="Marcar como perdido" aria-label={`Perder negócio de ${nv.lead_nome}`} onClick={() => setPerdendo(nv)} className="p-1.5 rounded-lg hover:bg-[var(--hover-solid)]" style={{ color: "var(--danger)" }}><XCircle className="w-4 h-4" /></button>
+                            <button type="button" title="Marcar como ganho" aria-label={`Ganhar lead de ${nv.lead_nome}`} onClick={() => atualizar(nv, { status: "ganho" })} className="p-1.5 rounded-lg hover:bg-[var(--hover-solid)]" style={{ color: "var(--accent-text)" }}><Trophy className="w-4 h-4" /></button>
+                            <button type="button" title="Marcar como perdido" aria-label={`Perder lead de ${nv.lead_nome}`} onClick={() => setPerdendo(nv)} className="p-1.5 rounded-lg hover:bg-[var(--hover-solid)]" style={{ color: "var(--danger)" }}><XCircle className="w-4 h-4" /></button>
                           </div>
                         )}
                       </li>
@@ -290,13 +294,15 @@ export default function Negociacoes({ onAuthError }: { onAuthError: (e: unknown)
       )}
 
       {visao === "lista" && (
-        <section className="rounded-2xl overflow-hidden" style={{ background: "var(--card)", border: "1px solid var(--line)" }} aria-label="Lista de negócios">
+        <section className="rounded-2xl overflow-hidden" style={{ background: "var(--card)", border: "1px solid var(--line)" }} aria-label="Lista do fluxo">
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-left text-xs" style={{ color: "var(--text-4)", borderBottom: "1px solid var(--line)" }}>
                   <th className="py-3 pl-4 pr-3 font-medium">Cliente</th>
                   <th className="py-3 pr-3 font-medium">Etapa</th>
+                  <th className="py-3 pr-3 font-medium hidden xl:table-cell">Origem</th>
+                  <th className="py-3 pr-3 font-medium hidden xl:table-cell">Último contato</th>
                   <th className="py-3 pr-3 font-medium hidden md:table-cell">Corretor</th>
                   <th className="py-3 pr-3 font-medium text-right hidden sm:table-cell">Valor</th>
                   <th className="py-3 pr-4 font-medium text-right hidden lg:table-cell">Na etapa</th>
@@ -305,8 +311,10 @@ export default function Negociacoes({ onAuthError }: { onAuthError: (e: unknown)
               <tbody>
                 {lista.itens.map((nv) => (
                   <tr key={nv.id} style={{ borderTop: "1px solid var(--line)" }}>
-                    <td className="py-3 pl-4 pr-3 min-w-0"><p className="font-medium truncate max-w-[14rem]" style={{ color: "var(--text)" }}>{nv.lead_nome}</p><p className="text-xs truncate max-w-[14rem]" style={{ color: "var(--text-3)" }}>{fone(nv.lead_telefone) || "Sem contato"}</p></td>
+                    <td className="py-3 pl-4 pr-3 min-w-0"><button type="button" onClick={() => setFichaId(nv.lead_id)} title="Abrir ficha do lead" className="font-medium truncate max-w-[14rem] text-left hover:underline block" style={{ color: "var(--text)" }}>{nv.lead_nome}</button><p className="text-xs truncate max-w-[14rem]" style={{ color: "var(--text-3)" }}>{fone(nv.lead_telefone) || "Sem contato"}</p></td>
                     <td className="py-3 pr-3"><span className="inline-flex items-center gap-1.5" style={{ color: "var(--text-2)" }}><span className={`w-2 h-2 rounded-full ${COR_ETAPA[nv.etapa_cor] ?? "bg-slate-400"}`} aria-hidden />{nv.etapa_nome}</span></td>
+                    <td className="py-3 pr-3 hidden xl:table-cell text-xs"><span className="flex items-center gap-1.5"><TermometroSelo valor={nv.im_termometro} />{nv.im_midia && <span className="truncate max-w-[9rem]" style={{ color: "var(--text-3)" }}>{nv.im_midia}</span>}</span></td>
+                    <td className="py-3 pr-3 hidden xl:table-cell text-xs" style={{ color: "var(--text-3)" }}>{nv.im_ultima_interacao ? tempoAtras(nv.im_ultima_interacao) : "—"}</td>
                     <td className="py-3 pr-3 hidden md:table-cell">{nv.corretor_nome ? <span style={{ color: "var(--text-2)" }}>{nv.corretor_nome}</span> : <Selo tom="aviso">Sem responsável</Selo>}</td>
                     <td className="py-3 pr-3 text-right tabular-nums hidden sm:table-cell" style={{ color: "var(--text-2)" }}>{nv.valor > 0 ? brl(nv.valor) : "—"}</td>
                     <td className="py-3 pr-4 text-right tabular-nums hidden lg:table-cell" style={{ color: nv.travado ? "var(--warn)" : "var(--text-3)" }}>{nv.dias_na_etapa} dias</td>
@@ -355,8 +363,26 @@ export default function Negociacoes({ onAuthError }: { onAuthError: (e: unknown)
         </section>
       )}
 
+      {fichaId && (
+        <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-modal="true" aria-label="Ficha do lead">
+          <button type="button" aria-label="Fechar ficha" className="absolute inset-0 bg-black/50" onClick={() => setFichaId(null)} />
+          <aside className="relative w-full max-w-xl h-full overflow-y-auto p-5" style={{ background: "var(--card)", borderLeft: "1px solid var(--line)" }}>
+            <FichaCliente
+              clienteId={fichaId} corretores={corretores.map((c) => ({ id: c.id, nome: c.nome ?? "Sem nome" }))} atribuindo={atribuindo} onAuthError={onAuthError}
+              onFechar={() => setFichaId(null)} onMudou={() => { carregar(true); if (visao === "lista") carregarLista(); }}
+              onAtribuir={async (id, corretorId) => {
+                setAtribuindo(true);
+                const r = await api("/admin/crm/clientes/atribuir", { method: "POST", corpo: { ids: [id], corretor_id: corretorId } });
+                setAtribuindo(false);
+                if (!r.ok) setErro(r.erro);
+                carregar(true);
+              }}
+            />
+          </aside>
+        </div>
+      )}
       {perdendo && (
-        <Modal titulo={`Por que o negócio de ${perdendo.lead_nome} foi perdido?`} onFechar={() => setPerdendo(null)}>
+        <Modal titulo={`Por que o lead de ${perdendo.lead_nome} foi perdido?`} onFechar={() => setPerdendo(null)}>
           <Entrada autoFocus value={motivo} onChange={(e) => setMotivo(e.target.value)} onKeyDown={(e) => e.key === "Enter" && confirmarPerda()} placeholder="Ex.: preço, comprou com outro, desistiu" aria-label="Motivo da perda" />
           <div className="flex justify-end gap-2 pt-4"><Botao variante="fantasma" onClick={() => setPerdendo(null)}>Cancelar</Botao><Botao variante="perigo" onClick={confirmarPerda} disabled={!motivo.trim()}>Marcar como perdido</Botao></div>
         </Modal>
@@ -381,7 +407,7 @@ export default function Negociacoes({ onAuthError }: { onAuthError: (e: unknown)
       )}
 
       {novoOpen && (
-        <Modal titulo="Novo negócio" onFechar={() => setNovoOpen(false)} descricao="Se o cliente ainda não está na carteira do corretor, ele é criado.">
+        <Modal titulo="Novo atendimento" onFechar={() => setNovoOpen(false)} descricao="Se o cliente ainda não está na carteira do corretor, ele é criado.">
           <form onSubmit={criarNegocio} className="space-y-4">
             {novoErro && <Aviso tom="erro">{novoErro}</Aviso>}
             <Campo id="nn-corretor" rotulo="Corretor *"><Seletor id="nn-corretor" required value={novo.corretor_id} onChange={(e) => setNovo({ ...novo, corretor_id: e.target.value })}><option value="">Selecione</option>{corretores.map((c) => <option key={c.id} value={c.id}>{c.nome || c.telefone_mascarado}</option>)}</Seletor></Campo>

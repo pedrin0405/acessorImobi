@@ -79,7 +79,9 @@ O que cada migração recente cria: `007` mídia das mensagens, `008` conversas 
 `012` configurações da imobiliária (dados, listas, localidades, tipos de atividade, roleta, lembretes),
 `013` leads do Imoview (cliente sem responsável, telefone de busca, status da importação),
 `014` funil automático (um negócio na etapa Lead para cada cliente, cadastro do Imoview em `dados_imoview`),
-`015` foto do corretor vinda do perfil do WhatsApp, `016` fases do Imoview nos negócios.
+`015` foto do corretor vinda do perfil do WhatsApp, `016` fases do Imoview nos negócios, `017` Fluxo (conteúdo completo dos atendimentos: interações, interesses, visitas, propostas e negócios).
+
+A `017` zera a marca da última leitura do funil: depois do deploy, clique em **Ler atendimentos** (Configurações → Integrações → Funil de vendas) para preencher o conteúdo de todos os atendimentos. A etapa de cada negócio no Fluxo passa a ser deduzida desse conteúdo (lead → contato → qualificado → visita agendada/realizada → proposta → negociação; negócio realizado = ganho, descartado = perdido), com o espelho ligado por padrão. O mapa de fases 1–8 virou ajuste opcional.
 
 ## O que depende do Gemini
 

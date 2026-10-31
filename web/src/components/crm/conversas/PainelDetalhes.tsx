@@ -134,7 +134,7 @@ export default function PainelDetalhes({
   const acoesRapidas = [
     { rotulo: "Carteira", icone: Users, destino: "leads" },
     { rotulo: "Agenda", icone: CalendarDays, destino: "agenda" },
-    { rotulo: "Negócios", icone: Handshake, destino: "negociacoes" },
+    { rotulo: "Fluxo", icone: Handshake, destino: "negociacoes" },
     { rotulo: "Auditoria", icone: History, destino: "auditoria" },
   ];
 
@@ -275,8 +275,8 @@ export default function PainelDetalhes({
                   </ul>
                 )}
               </Secao>
-              <Secao titulo={`Negócios abertos (${dados.negocios_abertos})`}>
-                {dados.negocios.length === 0 ? vazio("Sem negócios abertos.") : (
+              <Secao titulo={`Atendimentos em aberto (${dados.negocios_abertos})`}>
+                {dados.negocios.length === 0 ? vazio("Sem atendimentos em aberto.") : (
                   <ul>
                     {dados.negocios.map((n) => (
                       <li key={n.id} className="px-1 py-2.5" style={{ borderTop: "1px solid var(--line)" }}>

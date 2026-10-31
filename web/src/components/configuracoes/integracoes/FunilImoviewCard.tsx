@@ -5,6 +5,7 @@ import { GitBranch } from "lucide-react";
 import { Aviso, Botao, Cartao, Interruptor, Selo, Seletor, useApi } from "../ui";
 
 interface Fase { fase: number; etapa_id: string | null; em_atendimento: number; total: number }
+interface Estagio { estagio: string; rotulo: string; etapa_id: string | null; em_atendimento: number }
 interface Pendente { id: string; cliente: string; tipo: "fase" | "ganho" | "descarte"; fase_alvo: number | null; criada_em: string }
 interface Status {
   estado: "ocioso" | "na_fila" | "executando" | "ok" | "erro";
@@ -16,6 +17,7 @@ interface Status {
   erro: string | null;
   espelhar: boolean;
   fases: Fase[];
+  por_estagio?: Estagio[];
   etapas: { id: string; nome: string }[];
   negocios_ligados: number;
   pendentes: Pendente[];
@@ -68,7 +70,7 @@ export default function FunilImoviewCard({ onAuthError }: { onAuthError: (e: unk
     setOcupado(false);
     if (!r.ok) return setErro(r.erro);
     setErro(null); setSujo(false);
-    setOk(r.dados?.aplicado ? `Salvo. ${n(r.dados.aplicado.movidos)} negociações alinhadas com o Imoview.` : "Salvo.");
+    setOk(r.dados?.aplicado ? `Salvo. ${n(r.dados.aplicado.movidos)} leads alinhados no Fluxo com o Imoview.` : "Salvo.");
     setTimeout(() => setOk(null), 5000);
     carregar();
   };
@@ -88,8 +90,8 @@ export default function FunilImoviewCard({ onAuthError }: { onAuthError: (e: unk
           <div className="flex gap-3 min-w-0">
             <span className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: "var(--accent-soft)", color: "var(--accent-text)" }}><GitBranch className="w-5 h-5" aria-hidden /></span>
             <div className="min-w-0">
-              <h3 className="font-medium" style={{ color: "var(--text)" }}>Etapas do CRM do Imoview</h3>
-              <p className="text-sm mt-0.5" style={{ color: "var(--text-3)" }}>Lê a fase de cada atendimento no Imoview e, se você ligar o espelho, mantém as Negociações na mesma etapa. O Imoview não informa os nomes das fases: diga a que etapa do portal cada uma corresponde.</p>
+              <h3 className="font-medium" style={{ color: "var(--text)" }}>Fluxo de leads do Imoview</h3>
+              <p className="text-sm mt-0.5" style={{ color: "var(--text-3)" }}>O portal lê os atendimentos do Imoview e coloca cada lead na etapa do Fluxo pelo que já aconteceu: primeira resposta, imóvel no carrinho, visita, proposta ou negócio. Descartados viram perdidos e negócios realizados viram ganhos.</p>
             </div>
           </div>
           {ativo ? <Selo tom="info">{s.estado === "na_fila" ? "Na fila" : "Lendo"}</Selo> : s.estado === "erro" ? <Selo tom="perigo">Interrompida</Selo> : lido ? <Selo tom="ok">Atualizado</Selo> : <Selo>Não lido</Selo>}
@@ -110,28 +112,42 @@ export default function FunilImoviewCard({ onAuthError }: { onAuthError: (e: unk
             : <Botao variante="primario" onClick={() => ler(!lido)} disabled={ativo} carregando={ocupado}>{lido ? "Buscar mudanças" : "Ler atendimentos"}</Botao>}
           {lido && <Botao onClick={() => ler(true)} disabled={ativo}>Reler tudo</Botao>}
           <span className="flex-1" />
-          <span className="text-xs" style={{ color: "var(--text-3)" }}>Última leitura: {quando(s.ultimo_sucesso_em)} · {n(s.negocios_ligados)} negociações ligadas</span>
+          <span className="text-xs" style={{ color: "var(--text-3)" }}>Última leitura: {quando(s.ultimo_sucesso_em)} · {n(s.negocios_ligados)} leads do Fluxo ligados</span>
         </div>
       </div>
 
+      {s.por_estagio && s.por_estagio.length > 0 && (
+        <div className="p-5">
+          <h4 className="text-sm font-medium mb-3" style={{ color: "var(--text)" }}>Atendimentos por etapa do Fluxo</h4>
+          <ul className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+            {s.por_estagio.map((e) => (
+              <li key={e.estagio} className="rounded-xl px-3 py-2" style={{ background: "var(--card-2)" }}>
+                <p className="text-lg font-semibold tabular-nums" style={{ color: "var(--text)" }}>{n(e.em_atendimento)}</p>
+                <p className="text-xs truncate" style={{ color: "var(--text-3)" }}>{e.rotulo}</p>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       <div className="p-5">
-        <h4 className="text-sm font-medium mb-1" style={{ color: "var(--text)" }}>Fase do Imoview → etapa do portal</h4>
-        <p className="text-xs mb-4" style={{ color: "var(--text-3)" }}>Fases sem etapa não movem ninguém. Atendimentos descartados no Imoview viram negócio perdido e os de negócio realizado viram ganho, quando o espelho está ligado.</p>
+        <h4 className="text-sm font-medium mb-1" style={{ color: "var(--text)" }}>Ajuste avançado: fase do Imoview → etapa do portal</h4>
+        <p className="text-xs mb-4" style={{ color: "var(--text-3)" }}>Opcional. Se você escolher uma etapa para uma fase (1 a 8), ela vale no lugar da etapa deduzida pelo atendimento. Fases sem etapa seguem a dedução automática.</p>
         <ul className="space-y-2">
           {s.fases.map((f) => (
             <li key={f.fase} className="flex flex-wrap items-center gap-3">
               <span className="w-24 text-sm font-medium" style={{ color: "var(--text)" }}>Fase {f.fase}</span>
               <span className="w-60 text-xs tabular-nums" style={{ color: "var(--text-3)" }}>{n(f.em_atendimento)} em atendimento{f.total > f.em_atendimento ? ` · ${n(f.total)} no total` : ""}</span>
               <Seletor aria-label={`Etapa para a fase ${f.fase}`} value={mapa[f.fase] || ""} onChange={(e) => { setMapa({ ...mapa, [f.fase]: e.target.value }); setSujo(true); }} className="!w-auto min-w-[12rem] flex-1 sm:flex-none">
-                <option value="">Não espelhar</option>
+                <option value="">Automático</option>
                 {s.etapas.map((e) => <option key={e.id} value={e.id}>{e.nome}</option>)}
               </Seletor>
             </li>
           ))}
         </ul>
         <div className="flex flex-wrap items-center gap-3 mt-5">
-          <Interruptor ligado={espelhar} onChange={(v) => { setEspelhar(v); setSujo(true); }} rotulo="Espelhar o Imoview nas Negociações" />
-          <span className="text-sm" style={{ color: "var(--text-2)" }}>Espelhar o Imoview nas Negociações</span>
+          <Interruptor ligado={espelhar} onChange={(v) => { setEspelhar(v); setSujo(true); }} rotulo="Espelhar o Imoview no Fluxo" />
+          <span className="text-sm" style={{ color: "var(--text-2)" }}>Espelhar o Imoview no Fluxo</span>
           <span className="flex-1" />
           <Botao variante="primario" onClick={salvar} disabled={!sujo} carregando={ocupado}>Salvar</Botao>
         </div>

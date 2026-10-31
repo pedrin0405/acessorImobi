@@ -40,9 +40,10 @@ def test_atendimento_sem_codigo_ou_lead_nao_quebra():
     assert n["lead_codigo"] is None and n["alterado_em"] == n["incluido_em"]
 
 
-def test_config_vazia_nao_espelha_nada():
+def test_config_vazia_espelha_pelo_conteudo_sem_mapa_de_fases():
     c = f.ler_config(None)
-    assert c == {"espelhar": False, "fases": {}, "auto": True}
+    assert c == {"espelhar": True, "fases": {}, "auto": True}
+    assert f.ler_config({"imoview_funil": {"espelhar": False}})["espelhar"] is False
 
 
 def test_config_ignora_fases_invalidas_e_vazias():

@@ -22,6 +22,7 @@ from zoneinfo import ZoneInfo
 import structlog
 from sqlalchemy import text
 
+from app.domain.crm.fluxo_imoview import ETAPA_DO_ESTAGIO, ESTAGIOS, ROTULO_ESTAGIO, deduzir_estagio, montar_detalhes
 from app.domain.crm.importacao_imoview import _data
 from app.domain.imovel.sync import SemCredenciais, carregar_credenciais, inteiro, mensagem_de_erro, sem_acento
 from app.integration.imoview.client import ImoviewClient, ImoviewRateLimitError, ImoviewUnavailableError
@@ -63,15 +64,26 @@ def normalizar_atendimento(bruto: Dict[str, Any], finalidade: int, fase: int) ->
     if not codigo:
         return None
     lead = bruto.get("lead") if isinstance(bruto.get("lead"), dict) else {}
+    detalhes = montar_detalhes(bruto, _data)
+    texto = lambda v, n: (str(v or "").strip()[:n] or None)  # noqa: E731
     return {
         "codigo": codigo, "finalidade": finalidade, "fase": fase,
         "lead_codigo": inteiro(lead.get("codigo")),
-        "situacao": (str(bruto.get("situacao") or "").strip() or None),
+        "situacao": texto(bruto.get("situacao"), 40),
         "situacao_tipo": situacao_tipo(bruto.get("situacao")),
-        "termometro": (str(bruto.get("termometro") or "").strip() or None),
+        "termometro": texto(bruto.get("termometro"), 20),
         "corretor_codigo": inteiro(bruto.get("corretorcodigo")),
         "incluido_em": _data(bruto.get("datahorainclusao")),
         "alterado_em": _data(bruto.get("datahoraultimaalteracao")) or _data(bruto.get("datahorainclusao")),
+        "estagio": deduzir_estagio(bruto),
+        "funil": texto(bruto.get("funil"), 60), "midia": texto(bruto.get("midia"), 120), "campanha": texto(bruto.get("campanha"), 200),
+        "unidade": texto(bruto.get("unidadenome"), 120), "corretor_nome": texto(bruto.get("corretor"), 120),
+        "mql_nome": texto(bruto.get("mql"), 120), "qualificado": bruto.get("leadqualificado") is True,
+        "entrada_em": _data(bruto.get("datahoraentradalead")), "primeira_resposta_em": _data(bruto.get("datahora1Resposta")),
+        "ultima_interacao_em": _data(bruto.get("datahoraultimainteracao")),
+        "previsao_fechamento_em": _data(bruto.get("dataprevisaofechamento")), "fechamento_em": _data(bruto.get("datafechamento")),
+        "n_interacoes": len(detalhes["interacoes"]), "n_visitas": len(detalhes["visitas"]), "n_propostas": len(detalhes["propostas"]),
+        "detalhes": json.dumps(detalhes, ensure_ascii=False),
     }
 
 
@@ -86,7 +98,7 @@ def ler_config(dados: Optional[Dict[str, Any]]) -> Dict[str, Any]:
             continue
         if n in FASES and etapa:
             fases[n] = str(etapa)
-    return {"espelhar": bool(bruto.get("espelhar", False)), "fases": fases, "auto": bool(bruto.get("auto", True))}
+    return {"espelhar": bool(bruto.get("espelhar", True)), "fases": fases, "auto": bool(bruto.get("auto", True))}
 
 
 def etapa_da_fase(config: Dict[str, Any], fase: Optional[int]) -> Optional[str]:
@@ -152,6 +164,13 @@ async def obter_status(session, tenant_id: UUID) -> Dict[str, Any]:
                     FROM imoview_atendimentos WHERE tenant_id = :tid GROUP BY fase"""), {"tid": tid},
         )).fetchall()
     }
+    por_estagio_n = {
+        r.estagio: r.n for r in (await session.execute(
+            text("""SELECT estagio, COUNT(*) AS n FROM imoview_atendimentos
+                    WHERE tenant_id = :tid AND situacao_tipo = 'em_atendimento' GROUP BY estagio"""), {"tid": tid},
+        )).fetchall()
+    }
+    por_nome_etapa = await _etapas_por_estagio(session, tid)
     ligados = (await session.execute(
         text("SELECT COUNT(*) FROM crm_negocios WHERE tenant_id = :tid AND imoview_atendimento IS NOT NULL"), {"tid": tid},
     )).scalar() or 0
@@ -196,6 +215,9 @@ async def obter_status(session, tenant_id: UUID) -> Dict[str, Any]:
             {"fase": f, "etapa_id": config["fases"].get(f), **por_fase.get(f, {"em_atendimento": 0, "total": 0})} for f in FASES
         ],
         "etapas": etapas,
+        "por_estagio": [
+            {"estagio": e, "rotulo": ROTULO_ESTAGIO[e], "etapa_id": por_nome_etapa.get(e), "em_atendimento": por_estagio_n.get(e, 0)} for e in ESTAGIOS
+        ],
         "negocios_ligados": ligados, "clientes_sem_cadastro": sem_lead,
         "pendentes": pendentes, "total_pendentes": total_pendentes,
         "escrita_disponivel": False,  # exige o código de acesso do usuário do Imoview (ver EnviadorImoview)
@@ -227,14 +249,14 @@ async def salvar_config(session, tenant_id: UUID, espelhar: bool, fases: Dict[st
 
 _ATIVO = """
     ativo AS (
-        SELECT DISTINCT ON (a.lead_codigo) a.lead_codigo, a.codigo, a.fase, a.situacao_tipo, a.alterado_em
+        SELECT DISTINCT ON (a.lead_codigo) a.lead_codigo, a.codigo, a.fase, a.estagio, a.situacao_tipo, a.alterado_em
         FROM imoview_atendimentos a WHERE a.tenant_id = :tid AND a.lead_codigo IS NOT NULL
         ORDER BY a.lead_codigo, (a.situacao_tipo = 'em_atendimento') DESC, a.alterado_em DESC NULLS LAST, a.codigo DESC
     ),
     alvo AS (
-        SELECT DISTINCT ON (n.lead_id) n.id AS nid, a.codigo, a.fase, a.situacao_tipo, a.alterado_em,
+        SELECT DISTINCT ON (n.lead_id) n.id AS nid, a.codigo, a.fase, a.estagio, a.situacao_tipo, a.alterado_em,
                (n.imoview_atendimento IS DISTINCT FROM a.codigo OR n.imoview_fase IS DISTINCT FROM a.fase
-                OR n.imoview_situacao IS DISTINCT FROM a.situacao_tipo) AS mudou,
+                OR n.imoview_situacao IS DISTINCT FROM a.situacao_tipo OR n.imoview_estagio IS DISTINCT FROM a.estagio) AS mudou,
                (n.imoview_atualizado_em IS DISTINCT FROM a.alterado_em) AS alterado
         FROM ativo a
         JOIN crm_leads l ON l.tenant_id = :tid AND l.codigo_imoview = a.lead_codigo
@@ -250,13 +272,22 @@ async def ligar_negocios(s, tenant_id: UUID) -> List[str]:
         text(f"""
             WITH {_ATIVO}
             UPDATE crm_negocios n SET imoview_atendimento = alvo.codigo, imoview_fase = alvo.fase,
-                   imoview_situacao = alvo.situacao_tipo, imoview_atualizado_em = alvo.alterado_em
+                   imoview_situacao = alvo.situacao_tipo, imoview_estagio = alvo.estagio, imoview_atualizado_em = alvo.alterado_em
             FROM alvo WHERE n.id = alvo.nid AND (alvo.mudou OR alvo.alterado)
             RETURNING n.id, alvo.mudou
         """),
         {"tid": str(tenant_id)},
     )).fetchall()
     return [str(l.id) for l in linhas if l.mudou]
+
+
+async def _etapas_por_estagio(s, tid: str) -> Dict[str, str]:
+    """Estágio -> id da etapa do portal com o nome correspondente (etapas renomeadas ou removidas ficam de fora)."""
+    por_nome = {
+        sem_acento(r.nome): str(r.id)
+        for r in (await s.execute(text("SELECT id, nome FROM crm_etapas WHERE tenant_id = :tid"), {"tid": tid})).fetchall()
+    }
+    return {e: por_nome[ETAPA_DO_ESTAGIO[e]] for e in ESTAGIOS if ETAPA_DO_ESTAGIO[e] in por_nome}
 
 
 async def espelhar_negocios(s, tenant_id: UUID, config: Dict[str, Any], ids: Optional[List[str]]) -> int:
@@ -268,27 +299,32 @@ async def espelhar_negocios(s, tenant_id: UUID, config: Dict[str, Any], ids: Opt
     base = {"tid": tid, **({} if ids is None else {"ids": ids})}
 
     fases = sorted(config["fases"])
-    if fases:
-        r = await s.execute(
-            text(f"""
-                WITH mapa AS (
-                    SELECT * FROM unnest(CAST(:fases AS int[]), CAST(CAST(:etapas AS text[]) AS uuid[])) AS m(fase, etapa_id)
-                ), alvo AS (
-                    SELECT n.id AS nid, n.etapa_id AS atual, m.etapa_id AS novo FROM crm_negocios n
-                    JOIN mapa m ON m.fase = n.imoview_fase
-                    WHERE n.tenant_id = :tid AND n.status = 'aberto' AND n.imoview_situacao = 'em_atendimento'
-                      AND n.etapa_id <> m.etapa_id {escopo}
-                ), movido AS (
-                    UPDATE crm_negocios n SET etapa_id = alvo.novo, etapa_desde = NOW(), updated_at = NOW()
-                    FROM alvo WHERE n.id = alvo.nid RETURNING n.id, alvo.atual, alvo.novo
-                )
-                INSERT INTO crm_negocio_eventos (tenant_id, negocio_id, tipo, de, para, autor)
-                SELECT :tid, m.id, 'etapa', ea.nome, en.nome, 'imoview'
-                FROM movido m JOIN crm_etapas ea ON ea.id = m.atual JOIN crm_etapas en ON en.id = m.novo
-            """),
-            {**base, "fases": fases, "etapas": [config["fases"][f] for f in fases]},
-        )
-        movidos += r.rowcount or 0
+    por_estagio = await _etapas_por_estagio(s, tid)
+    estagios = sorted(por_estagio)
+    r = await s.execute(
+        text(f"""
+            WITH mapa_fase AS (
+                SELECT * FROM unnest(CAST(:fases AS int[]), CAST(CAST(:etapas_fase AS text[]) AS uuid[])) AS m(fase, etapa_id)
+            ), mapa_estagio AS (
+                SELECT * FROM unnest(CAST(:estagios AS text[]), CAST(CAST(:etapas_estagio AS text[]) AS uuid[])) AS m(estagio, etapa_id)
+            ), alvo AS (
+                SELECT n.id AS nid, n.etapa_id AS atual, COALESCE(mf.etapa_id, me.etapa_id) AS novo FROM crm_negocios n
+                LEFT JOIN mapa_fase mf ON mf.fase = n.imoview_fase
+                LEFT JOIN mapa_estagio me ON me.estagio = n.imoview_estagio
+                WHERE n.tenant_id = :tid AND n.status = 'aberto' AND n.imoview_situacao = 'em_atendimento' {escopo}
+                  AND COALESCE(mf.etapa_id, me.etapa_id) IS NOT NULL AND n.etapa_id <> COALESCE(mf.etapa_id, me.etapa_id)
+            ), movido AS (
+                UPDATE crm_negocios n SET etapa_id = alvo.novo, etapa_desde = NOW(), updated_at = NOW()
+                FROM alvo WHERE n.id = alvo.nid RETURNING n.id, alvo.atual, alvo.novo
+            )
+            INSERT INTO crm_negocio_eventos (tenant_id, negocio_id, tipo, de, para, autor)
+            SELECT :tid, m.id, 'etapa', ea.nome, en.nome, 'imoview'
+            FROM movido m JOIN crm_etapas ea ON ea.id = m.atual JOIN crm_etapas en ON en.id = m.novo
+        """),
+        {**base, "fases": fases, "etapas_fase": [config["fases"][f] for f in fases],
+         "estagios": estagios, "etapas_estagio": [por_estagio[e] for e in estagios]},
+    )
+    movidos += r.rowcount or 0
 
     for situacao, status, motivo in ((SITUACAO_GANHO, "ganho", None), (SITUACAO_DESCARTADO, "perdido", MOTIVO_DESCARTE)):
         r = await s.execute(
@@ -412,16 +448,21 @@ async def _ler_pagina(cliente: Any, fin: str, fase: int, pagina: int, desde: Opt
     raise RuntimeError("inalcançável")
 
 
+_COLS_FLUXO = ('estagio', 'funil', 'midia', 'campanha', 'unidade', 'corretor_nome', 'mql_nome', 'qualificado', 'entrada_em', 'primeira_resposta_em', 'ultima_interacao_em', 'previsao_fechamento_em', 'fechamento_em', 'n_interacoes', 'n_visitas', 'n_propostas')
+
 _UPSERT = text("""
     INSERT INTO imoview_atendimentos (tenant_id, codigo, finalidade, lead_codigo, fase, situacao, situacao_tipo, termometro,
-                                      corretor_codigo, incluido_em, alterado_em, lido_em)
+                                      corretor_codigo, incluido_em, alterado_em, lido_em,
+                                      %s, detalhes)
     VALUES (:tid, :codigo, :finalidade, :lead_codigo, :fase, :situacao, :situacao_tipo, :termometro,
-            :corretor_codigo, :incluido_em, :alterado_em, NOW())
+            :corretor_codigo, :incluido_em, :alterado_em, NOW(),
+            %s, CAST(:detalhes AS jsonb))
     ON CONFLICT (tenant_id, codigo) DO UPDATE SET
         finalidade = EXCLUDED.finalidade, lead_codigo = EXCLUDED.lead_codigo, fase = EXCLUDED.fase, situacao = EXCLUDED.situacao,
         situacao_tipo = EXCLUDED.situacao_tipo, termometro = EXCLUDED.termometro, corretor_codigo = EXCLUDED.corretor_codigo,
-        incluido_em = EXCLUDED.incluido_em, alterado_em = EXCLUDED.alterado_em, lido_em = NOW()
-""")
+        incluido_em = EXCLUDED.incluido_em, alterado_em = EXCLUDED.alterado_em, lido_em = NOW(),
+        %s, detalhes = EXCLUDED.detalhes
+""" % (", ".join(_COLS_FLUXO), ", ".join(":" + c for c in _COLS_FLUXO), ", ".join(f"{c} = EXCLUDED.{c}" for c in _COLS_FLUXO)))
 
 
 async def gravar_atendimentos(tenant_id: UUID, itens: List[Dict[str, Any]]) -> None:

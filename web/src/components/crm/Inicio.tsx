@@ -126,7 +126,7 @@ export default function Inicio({
             <p className="p-5 text-sm" style={{ color: "var(--text-4)" }}>Carregando...</p>
           ) : pendencias.length === 0 ? (
             <p className="p-5 text-sm" style={{ color: "var(--text-3)" }}>
-              Tudo em dia. Sem atividades atrasadas, negócios parados ou conversas esperando.
+              Tudo em dia. Sem atividades atrasadas, atendimentos parados ou conversas esperando.
             </p>
           ) : (
             pendencias.map((p, i) => {

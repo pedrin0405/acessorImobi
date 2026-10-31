@@ -628,7 +628,7 @@ export default function TenantAdminPage() {
             { id: "visao", rotulo: "Visão Geral", icone: LayoutGrid },
             { id: "conversas", rotulo: "Conversas", icone: MessageSquare, contador: totalSemResposta || undefined },
             { id: "leads", rotulo: "Clientes", icone: Contact },
-            { id: "negociacoes", rotulo: "Negociações", icone: Handshake },
+            { id: "negociacoes", rotulo: "Fluxo", icone: Handshake },
             { id: "agenda", rotulo: "Agenda", icone: CalendarDays },
             { id: "imoveis", rotulo: "Imóveis", icone: Building2 },
           ],

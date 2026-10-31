@@ -31,6 +31,18 @@ export interface Negocio {
   automatico?: boolean;
   imoview_fase?: number | null;
   imoview_situacao?: "em_atendimento" | "negocio_realizado" | "descartado" | null;
+  imoview_estagio?: string | null;
+  im_funil?: string | null;
+  im_midia?: string | null;
+  im_campanha?: string | null;
+  im_termometro?: "Quente" | "Morno" | "Frio" | "Indefinido" | null;
+  im_corretor_nome?: string | null;
+  im_ultima_interacao?: string | null;
+  im_n_interacoes?: number | null;
+  im_n_visitas?: number | null;
+  im_n_propostas?: number | null;
+  im_qualificado?: boolean | null;
+  im_previsao_fechamento?: string | null;
   corretor_nome: string | null;
   dias_na_etapa: number;
   travado: boolean;
@@ -176,4 +188,42 @@ export async function corretoresAtivos(
   if (!res.ok) return [];
   const lista: CorretorOpcao[] = await res.json();
   return lista.filter((c) => c.status === "active");
+}
+
+export interface ImovelImoview {
+  codigo: number; titulo: string | null; tipo: string | null; valor: string | null; bairro: string | null; cidade: string | null;
+  quartos: string | number | null; vagas: string | number | null; area: string | number | null; foto: string | null;
+}
+
+export interface AtendimentoImoview {
+  codigo: number;
+  finalidade: string;
+  funil: string | null;
+  situacao: string | null;
+  situacao_tipo: "em_atendimento" | "negocio_realizado" | "descartado";
+  estagio: string | null;
+  fase: number | null;
+  midia: string | null;
+  campanha: string | null;
+  termometro: string | null;
+  unidade: string | null;
+  corretor_nome: string | null;
+  mql_nome: string | null;
+  qualificado: boolean;
+  entrada_em: string | null;
+  primeira_resposta_em: string | null;
+  ultima_interacao_em: string | null;
+  previsao_fechamento_em: string | null;
+  fechamento_em: string | null;
+  perfil?: {
+    tipos?: string[]; cidades?: string[]; bairros?: string[]; regioes?: string[];
+    quartos?: number; banheiros?: number; suites?: number; vagas?: number;
+    valor_de?: number; valor_ate?: number; area_de?: number; area_ate?: number;
+    financiamento?: boolean; permuta?: boolean; destinacao?: string | null; extras?: string[];
+  } | null;
+  carrinho?: ImovelImoview[];
+  visitas?: { codigo: number; em: string | null; tipo: string | null; situacao: string | null; parecer: string | null; motivo: string | null; complemento: string | null; imovel: ImovelImoview | null }[];
+  propostas?: { codigo: number; situacao: string | null; valor: number | null; em: string | null; imovel: ImovelImoview | null }[];
+  negocios?: { codigo: number; situacao: string | null; valor: number | null; comissao: number | null; em: string | null; imovel: ImovelImoview | null }[];
+  interacoes?: { em: string | null; descricao: string; usuario: string | null }[];
 }

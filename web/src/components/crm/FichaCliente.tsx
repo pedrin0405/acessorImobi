@@ -2,7 +2,8 @@
 
 import React, { useCallback, useEffect, useState } from "react";
 import { CalendarDays, Globe, Home, Mail, MapPin, Phone, X } from "lucide-react";
-import { brl, Perfil } from "@/lib/crm";
+import { AtendimentoImoview, brl, Perfil } from "@/lib/crm";
+import AtendimentosImoview from "@/components/crm/AtendimentosImoview";
 import { Aviso, Botao, Area, Selo, Seletor, useApi } from "@/components/configuracoes/ui";
 
 interface Endereco { tipo?: string; endereco?: string; bairro?: string; cidade?: string; estado?: string; cep?: string }
@@ -24,7 +25,7 @@ export interface Ficha {
   status: string; perfil: Perfil; observacoes: string | null; corretor_id: string | null; corretor_nome: string | null;
   codigo_imoview: number | null; dados_imoview: DadosImoview; ultimo_contato: string | null; created_at: string; updated_at: string;
   importado_em: string | null; imoview_incluido_em: string | null; imoview_alterado_em: string | null;
-  negocios: NegocioLead[]; atividades: AtividadeLead[]; historico: EventoLead[];
+  negocios: NegocioLead[]; atendimentos?: AtendimentoImoview[]; atividades: AtividadeLead[]; historico: EventoLead[];
 }
 interface ImovelMatch { codigo: number; tipo: string | null; bairro: string | null; quartos: number | null; valor: number | null; foto_url: string | null; link_anuncio: string | null }
 
@@ -203,6 +204,12 @@ export default function FichaCliente({
         {papeis.length > 0 && <div className="flex flex-wrap gap-1.5">{papeis.map(([k, q]) => <Selo key={k} tom={k === "lead" ? "info" : "ok"}>{PAPEIS[k] ?? k}{q > 1 ? ` · ${q}` : ""}</Selo>)}</div>}
       </Secao>
 
+      {(ficha.atendimentos?.length ?? 0) > 0 && (
+        <Secao titulo={`Atendimento no Imoview (${ficha.atendimentos!.length})`}>
+          <AtendimentosImoview atendimentos={ficha.atendimentos!} />
+        </Secao>
+      )}
+
       <Secao titulo="Perfil de busca" vazio="Ainda sem perfil de busca; o agente preenche conforme as conversas.">
         {temPerfil ? <Campos itens={perfilLinhas} /> : undefined}
       </Secao>
@@ -213,7 +220,7 @@ export default function FichaCliente({
         </Secao>
       )}
 
-      <Secao titulo={`Negócios (${ficha.negocios.length})`} vazio="Nenhum negócio ainda.">
+      <Secao titulo={`Fluxo (${ficha.negocios.length})`} vazio="Nenhum atendimento no fluxo ainda.">
         {ficha.negocios.length > 0 ? (
           <ul className="space-y-2">
             {ficha.negocios.map((n) => (

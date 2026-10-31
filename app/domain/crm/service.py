@@ -641,6 +641,10 @@ class CrmService:
                l.nome AS lead_nome, l.telefone AS lead_telefone, l.email AS lead_email,
                l.origem AS lead_origem, l.temperatura AS lead_temperatura,
                c.nome AS corretor_nome,
+               ia.funil AS im_funil, ia.midia AS im_midia, ia.campanha AS im_campanha, ia.termometro AS im_termometro,
+               ia.corretor_nome AS im_corretor_nome, ia.ultima_interacao_em AS im_ultima_interacao,
+               ia.n_interacoes AS im_n_interacoes, ia.n_visitas AS im_n_visitas, ia.n_propostas AS im_n_propostas,
+               ia.qualificado AS im_qualificado, ia.previsao_fechamento_em AS im_previsao_fechamento,
                EXTRACT(DAY FROM NOW() - n.etapa_desde)::int AS dias_na_etapa,
                (n.status = 'aberto' AND NOT n.automatico AND e.alerta_dias IS NOT NULL
                 AND n.etapa_desde < NOW() - make_interval(days => e.alerta_dias)) AS travado
@@ -648,6 +652,7 @@ class CrmService:
         JOIN crm_etapas e ON e.id = n.etapa_id
         JOIN crm_leads l ON l.id = n.lead_id
         LEFT JOIN corretores c ON c.id = n.corretor_id
+        LEFT JOIN imoview_atendimentos ia ON ia.tenant_id = n.tenant_id AND ia.codigo = n.imoview_atendimento
     """
 
     async def get_negocio(self, tenant_id: UUID, negocio_id: UUID) -> Optional[Dict[str, Any]]:
@@ -862,6 +867,7 @@ class CrmService:
                     ORDER BY a.inicio DESC NULLS FIRST LIMIT 30"""),
             {"tid": str(tenant_id), "lid": str(lead_id)},
         )).fetchall()]
+        ficha["atendimentos"] = await self._atendimentos_do_lead(tenant_id, r.codigo_imoview)
         ficha["historico"] = [_linha(e) for e in (await self._session.execute(
             text("""SELECT ev.tipo, ev.de, ev.para, ev.autor, ev.created_at, n.titulo
                     FROM crm_negocio_eventos ev JOIN crm_negocios n ON n.id = ev.negocio_id
@@ -869,6 +875,33 @@ class CrmService:
             {"tid": str(tenant_id), "lid": str(lead_id)},
         )).fetchall()]
         return ficha
+
+    async def _atendimentos_do_lead(self, tenant_id: UUID, codigo_imoview: Optional[int]) -> List[Dict[str, Any]]:
+        """Atendimentos do cliente no Imoview (o que está em andamento primeiro) com interações, interesses e imóveis."""
+        if not codigo_imoview:
+            return []
+        rows = await self._session.execute(
+            text("""
+                SELECT * FROM imoview_atendimentos WHERE tenant_id = :tid AND lead_codigo = :cod
+                ORDER BY (situacao_tipo = 'em_atendimento') DESC, alterado_em DESC NULLS LAST, codigo DESC LIMIT 10
+            """),
+            {"tid": str(tenant_id), "cod": codigo_imoview},
+        )
+        lista = []
+        for a in rows.fetchall():
+            d = a.detalhes or {}
+            lista.append({k: _json(v) for k, v in {
+                "codigo": a.codigo, "finalidade": "Venda" if a.finalidade == 2 else "Aluguel", "funil": a.funil,
+                "situacao": a.situacao, "situacao_tipo": a.situacao_tipo, "estagio": a.estagio, "fase": a.fase,
+                "midia": a.midia, "campanha": a.campanha, "termometro": a.termometro, "unidade": a.unidade,
+                "corretor_nome": a.corretor_nome, "mql_nome": a.mql_nome, "qualificado": a.qualificado,
+                "entrada_em": a.entrada_em, "primeira_resposta_em": a.primeira_resposta_em,
+                "ultima_interacao_em": a.ultima_interacao_em, "previsao_fechamento_em": a.previsao_fechamento_em,
+                "fechamento_em": a.fechamento_em,
+                "perfil": d.get("perfil") or {}, "carrinho": d.get("carrinho") or [], "visitas": d.get("visitas") or [],
+                "propostas": d.get("propostas") or [], "negocios": d.get("negocios") or [], "interacoes": d.get("interacoes") or [],
+            }.items()})
+        return lista
 
     async def _negocios_do_lead(self, tenant_id: UUID, lead_id: UUID) -> List[Dict[str, Any]]:
         rows = await self._session.execute(
