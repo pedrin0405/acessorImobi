@@ -34,6 +34,8 @@ services:
     environment:
       <<: *api-env
       API_INTERNAL_URL: http://api:8000
+      # Endereços extras que mostram a página de divulgação (além do domínio raiz e do www), separados por vírgula
+      LANDING_HOSTS: ${LANDING_HOSTS:-}
     depends_on:
       - api
     networks:

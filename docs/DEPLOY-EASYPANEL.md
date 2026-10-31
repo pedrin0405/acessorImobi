@@ -36,12 +36,19 @@ Aponte o DNS (registro A) de cada nome para o IP da VPS e associe ao serviço:
 
 | Domínio | Serviço : porta |
 |---|---|
+| `<BASE_DOMAIN>` e `www.<BASE_DOMAIN>` (página de divulgação e `/login`) | `web` : 3000 |
 | `admin.<BASE_DOMAIN>` | `web` : 3000 |
 | `corretor.<BASE_DOMAIN>` | `web` : 3000 |
 | `*.<BASE_DOMAIN>` (portais das imobiliárias, wildcard) | `web` : 3000 |
 | `api.<BASE_DOMAIN>` | `api` : 8000 |
 | `evo.<BASE_DOMAIN>` | `evolution` : 8080 |
 | `storage.<BASE_DOMAIN>` (opcional) | `minio` : 9000 |
+
+A página de divulgação, o `/login` e os três portais são rotas do mesmo serviço `web`: não há domínio novo só
+para elas. O que decide a tela é o endereço: `<BASE_DOMAIN>`, `www.<BASE_DOMAIN>` e os endereços listados na variável
+`LANDING_HOSTS` mostram a divulgação (e aceitam `/login`, `/tenant`, `/corretor` e `/admin`); `admin.` mostra o painel
+do desenvolvedor, `corretor.` o portal do corretor e qualquer outro subdomínio (ex.: `alvorada.<BASE_DOMAIN>`) o portal
+da imobiliária. Para ver a divulgação num endereço de teste do EasyPanel, coloque esse host em `LANDING_HOSTS`.
 
 O wildcard precisa de DNS `*.<BASE_DOMAIN>` e, para HTTPS, certificado
 wildcard (DNS-01) ou um domínio por imobiliária.

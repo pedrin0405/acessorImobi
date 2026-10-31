@@ -20,6 +20,17 @@ export function middleware(request: NextRequest) {
   if (/^\d{1,3}(\.\d{1,3}){3}$/.test(hostname) || hostname.startsWith("[")) {
     return NextResponse.next();
   }
+  // Endereços da página de divulgação: o domínio raiz, o www e os que forem listados em LANDING_HOSTS
+  // (separados por vírgula; útil para endereços de teste do EasyPanel). Eles servem todas as rotas sem reescrita:
+  // "/" é a divulgação, "/login" o acesso e "/tenant", "/corretor" e "/admin" os portais.
+  const base = (process.env.BASE_DOMAIN || "").toLowerCase();
+  const paginasPublicas = [base, base && `www.${base}`, ...(process.env.LANDING_HOSTS || "").toLowerCase().split(",")]
+    .map((h) => h.trim())
+    .filter(Boolean);
+  if (paginasPublicas.includes(hostname.toLowerCase())) {
+    return NextResponse.next();
+  }
+
   const parts = hostname.split(".");
 
   if (parts[0] === "admin") {
