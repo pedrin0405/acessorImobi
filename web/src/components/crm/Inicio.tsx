@@ -89,7 +89,7 @@ export default function Inicio({
           .slice(0, 3)
           .forEach((c) =>
             itens.push({
-              id: c.corretor_id, corretorId: c.corretor_id, corretorNome: c.corretor_nome, icone: MessageCircle, tom: "normal", destino: "conversas",
+              id: c.corretor_id, corretorId: c.corretor_id, corretorNome: c.corretor_nome, icone: MessageCircle, tom: "normal", destino: ehCorretor ? "chat-acessor" : "conversas",
               titulo: ehCorretor ? "Sua conversa com o Acessor" : `Conversa com ${c.corretor_nome || "corretor"}`,
               detalhe: `${c.nao_respondidas} sem resposta do agente`,
             })

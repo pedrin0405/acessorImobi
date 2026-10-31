@@ -193,9 +193,15 @@ async def listar_atendimentos(
                 SELECT a.id, COALESCE(l.nome, a.nome_contato) AS nome, a.telefone_cliente,
                        a.lead_id, a.imobiliario, a.aguardando_corretor, a.ultima_mensagem_em,
                        a.ultima_do_cliente_em, a.analisado_em,
-                       a.analise->>'resumo' AS resumo, a.analise->>'temperatura' AS temperatura
+                       a.analise->>'resumo' AS resumo, a.analise->>'temperatura' AS temperatura,
+                       um.autor AS ultima_autor, um.tipo AS ultima_tipo,
+                       COALESCE(NULLIF(um.transcricao, ''), um.conteudo) AS ultima_texto,
+                       (SELECT COUNT(*) FROM atendimento_mensagens m WHERE m.atendimento_id = a.id AND m.autor = 'cliente'
+                          AND m.created_at > COALESCE((SELECT MAX(c.created_at) FROM atendimento_mensagens c WHERE c.atendimento_id = a.id AND c.autor = 'corretor'), 'epoch'::timestamptz)) AS nao_respondidas
                 FROM atendimentos a
                 LEFT JOIN crm_leads l ON l.id = a.lead_id
+                LEFT JOIN LATERAL (SELECT autor, tipo, conteudo, transcricao FROM atendimento_mensagens m WHERE m.atendimento_id = a.id
+                                   ORDER BY m.created_at DESC LIMIT 1) um ON TRUE
                 WHERE a.tenant_id = :tid AND a.corretor_id = :cid
                   AND a.ultima_mensagem_em > NOW() - make_interval(days => :dias)
                   {'' if todos else 'AND a.imobiliario IS NOT FALSE'}
@@ -228,7 +234,7 @@ async def detalhe_atendimento(atendimento_id: UUID, corretor=Depends(require_cor
             raise HTTPException(status_code=404, detail="Atendimento não encontrado.")
         msgs = await session.execute(
             text("""
-                SELECT autor, tipo, conteudo, transcricao, created_at FROM (
+                SELECT id, autor, tipo, conteudo, transcricao, created_at FROM (
                     SELECT * FROM atendimento_mensagens WHERE atendimento_id = :aid
                     ORDER BY created_at DESC LIMIT 200
                 ) m ORDER BY created_at

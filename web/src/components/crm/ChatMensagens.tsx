@@ -396,7 +396,7 @@ function LinkProcesso({ onClick }: { onClick: () => void }) {
 }
 
 /* ---------- balão ---------- */
-function Balao({ item, onAbrir, onProcesso }: { item: Extract<Item, { tipo: "msg" }>; onAbrir: (src: string) => void; onProcesso?: (id: string) => void }) {
+function Balao({ item, onAbrir, onProcesso, rotulos }: { item: Extract<Item, { tipo: "msg" }>; onAbrir: (src: string) => void; onProcesso?: (id: string) => void; rotulos: Rotulos }) {
   const { m, primeira, ultima } = item;
   if (m.origem === "nota") return <NotaInterna m={m} />;
   const saida = m.direcao === "outbound";
@@ -419,7 +419,7 @@ function Balao({ item, onAbrir, onProcesso }: { item: Extract<Item, { tipo: "msg
         {primeira && (
           <div className={`flex items-center gap-1.5 text-[11px] font-semibold mb-1 ${humano ? "text-[var(--info)]" : saida ? "text-[var(--accent-text)]" : "text-[var(--text-3)]"}`}>
             {eAudio && <Mic className="w-3 h-3" aria-hidden />}
-            {humano ? `Equipe · ${autor}` : saida ? "Acessor" : "Corretor"}
+            {humano ? `Equipe · ${autor}` : saida ? rotulos.saida : rotulos.entrada}
           </div>
         )}
         {eAudio ? (
@@ -462,7 +462,11 @@ function NotaInterna({ m }: { m: MensagemChat }) {
 }
 
 /* ---------- conversa ---------- */
-export default function ChatMensagens({ mensagens, onProcesso }: { mensagens: MensagemChat[]; onProcesso?: (id: string) => void }) {
+/** Quem fala em cada lado do chat; no Chat do Acessor é o agente (saída) e o corretor (entrada). */
+export interface Rotulos { saida: string; entrada: string }
+const ROTULOS_AGENTE: Rotulos = { saida: "Acessor", entrada: "Corretor" };
+
+export default function ChatMensagens({ mensagens, onProcesso, rotulos = ROTULOS_AGENTE }: { mensagens: MensagemChat[]; onProcesso?: (id: string) => void; rotulos?: Rotulos }) {
   const itens = useMemo(() => montarItens(mensagens), [mensagens]);
   // Cada dia é uma seção própria: o chip de data fica preso só dentro do seu dia.
   const secoes = useMemo(() => {
@@ -541,7 +545,7 @@ export default function ChatMensagens({ mensagens, onProcesso }: { mensagens: Me
             </div>
           );
         }
-        return <Balao key={it.chave} item={it as Extract<Item, { tipo: "msg" }>} onAbrir={setAmpliada} onProcesso={onProcesso} />;
+        return <Balao key={it.chave} item={it as Extract<Item, { tipo: "msg" }>} onAbrir={setAmpliada} onProcesso={onProcesso} rotulos={rotulos} />;
           })}
         </section>
       ))}

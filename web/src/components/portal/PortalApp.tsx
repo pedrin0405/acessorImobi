@@ -22,17 +22,18 @@ import {
   WifiOff,
   Loader2,
   MessageSquare,
-  MessagesSquare,
+  Sparkles,
   ArrowLeft,
   CheckCheck,
   Mic,
   ImageIcon,
   FileText,
 } from "lucide-react";
-import { fetchApi, AuthError, clearToken, tokenRole, tokenSub } from "@/lib/api";
+import { fetchApi, AuthError, clearToken, tokenCorretorId, tokenRole, tokenSub } from "@/lib/api";
 import { PapelProvider, type Papel } from "@/components/portal/papel";
 import MeuPainel from "@/components/crm/MeuPainel";
-import Atendimentos from "@/components/corretor/Atendimentos";
+import ConversasAtendimentos from "@/components/crm/conversas/ConversasAtendimentos";
+import type { AtendimentoItem } from "@/components/crm/conversas/tipos";
 import MeuWhatsApp from "@/components/corretor/MeuWhatsApp";
 import AvatarDoCorretor from "@/components/corretor/AvatarDoCorretor";
 import LoginForm from "@/components/LoginForm";
@@ -70,12 +71,12 @@ interface WhatsAppStatus {
   evolution_state?: string | null;
 }
 
-const ABAS = ["inicio", "visao", "conversas", "negociacoes", "agenda", "imoveis", "leads", "corretores", "whatsapp", "agente", "configuracoes", "auditoria", "pendencias", "atendimentos"] as const;
+const ABAS = ["inicio", "visao", "conversas", "negociacoes", "agenda", "imoveis", "leads", "corretores", "whatsapp", "agente", "configuracoes", "auditoria", "pendencias", "chat-acessor"] as const;
 type Aba = (typeof ABAS)[number];
 
 // O corretor não tem as telas de gestão (equipe, auditoria, pendências); o endereço delas volta ao Início.
-const ABAS_DO_CORRETOR: readonly Aba[] = ["inicio", "visao", "conversas", "negociacoes", "agenda", "imoveis", "leads", "atendimentos", "configuracoes"];
-const ABAS_DA_EQUIPE: readonly Aba[] = ABAS.filter((a) => a !== "atendimentos");
+const ABAS_DO_CORRETOR: readonly Aba[] = ["inicio", "visao", "conversas", "negociacoes", "agenda", "imoveis", "leads", "chat-acessor", "configuracoes"];
+const ABAS_DA_EQUIPE: readonly Aba[] = ABAS.filter((a) => a !== "chat-acessor");
 const abasDo = (papel: Papel): readonly Aba[] => (papel === "corretor" ? ABAS_DO_CORRETOR : ABAS_DA_EQUIPE);
 
 export default function PortalApp({ papel }: { papel: Papel }) {
@@ -95,6 +96,11 @@ export default function PortalApp({ papel }: { papel: Papel }) {
   // Conversas (preview estilo WhatsApp)
   const [conversas, setConversas] = useState<ConversaResumo[]>([]);
   const [loadingConversas, setLoadingConversas] = useState(false);
+
+  // Atendimentos (corretor): conversas dele com os clientes no WhatsApp pessoal
+  const [atendimentos, setAtendimentos] = useState<AtendimentoItem[]>([]);
+  const [loadingAtendimentos, setLoadingAtendimentos] = useState(false);
+  const [atendimentosTodos, setAtendimentosTodos] = useState(false);
 
   // Modal novo corretor
   const [novoCorretorOpen, setNovoCorretorOpen] = useState(false);
@@ -121,6 +127,7 @@ export default function PortalApp({ papel }: { papel: Papel }) {
   const [pendencias, setPendencias] = useState<any[]>([]);
 
   const totalSemResposta = conversas.reduce((soma, c) => soma + (c.nao_respondidas || 0), 0);
+  const totalAtendimentosSem = atendimentos.reduce((soma, a) => soma + (a.nao_respondidas || 0), 0);
 
   // Usado pelos componentes de CRM: sessão expirada volta para o login.
   const tratarAuthError = (e: unknown) => {
@@ -171,6 +178,18 @@ export default function PortalApp({ papel }: { papel: Papel }) {
       }
     } finally {
       setLoadingConversas(false);
+    }
+  };
+
+  const loadAtendimentos = async (todos = atendimentosTodos) => {
+    setLoadingAtendimentos(true);
+    try {
+      const res = await fetchApi(`/corretor/atendimentos?dias=90&todos=${todos}`);
+      if (res.ok) setAtendimentos(await res.json());
+    } catch (e) {
+      tratarAuthError(e);
+    } finally {
+      setLoadingAtendimentos(false);
     }
   };
 
@@ -314,7 +333,9 @@ export default function PortalApp({ papel }: { papel: Papel }) {
   // Mantém a aba ativa ao recarregar a página (ex.: #agente).
   useEffect(() => {
     const salva = window.location.hash.replace("#", "");
-    if (abasDo(papel).includes(salva as Aba)) setTab(salva as Aba);
+    // #atendimentos era a tela antiga do corretor: hoje as Conversas dele são os atendimentos
+    if (papel === "corretor" && salva === "atendimentos") setTab("conversas");
+    else if (abasDo(papel).includes(salva as Aba)) setTab(salva as Aba);
   }, []);
 
   // Endereços antigos (#agente, #whatsapp) agora abrem dentro de Configurações.
@@ -338,8 +359,9 @@ export default function PortalApp({ papel }: { papel: Papel }) {
     // O token é de admin: entra já (a API recusa com 401 se ele expirou).
     setAuthed(true);
     setCheckedAuth(true);
-    if (tab === "conversas" || tab === "inicio") loadConversas();
+    if (tab === "conversas" || tab === "inicio" || tab === "chat-acessor") loadConversas();
     if (ehCorretor) {
+      loadAtendimentos();
       if (!eu) loadCorretores();  // a lista traz só ele: nome e foto para o menu
       return;
     }
@@ -362,7 +384,7 @@ export default function PortalApp({ papel }: { papel: Papel }) {
 
   // Atualiza a lista de conversas periodicamente (sem auditar conteúdo).
   useEffect(() => {
-    if (!authed || tab !== "conversas") return;
+    if (!authed || (tab !== "conversas" && tab !== "chat-acessor")) return;
 
     const timer = setInterval(() => {
       loadConversas();
@@ -370,6 +392,17 @@ export default function PortalApp({ papel }: { papel: Papel }) {
 
     return () => clearInterval(timer);
   }, [authed, tab]);
+
+  // O contador de atendimentos sem resposta no menu do corretor se mantém em dia fora da tela de Conversas.
+  useEffect(() => {
+    if (!authed || !ehCorretor) return;
+    loadAtendimentos(atendimentosTodos);
+  }, [authed, atendimentosTodos]);
+  useEffect(() => {
+    if (!authed || !ehCorretor || tab === "conversas") return;
+    const timer = setInterval(() => loadAtendimentos(), 60000);
+    return () => clearInterval(timer);
+  }, [authed, tab, atendimentosTodos]);
 
   if (!authed) {
     return (
@@ -643,21 +676,21 @@ export default function PortalApp({ papel }: { papel: Papel }) {
       marca="Acessor"
       subtitulo={ehCorretor ? "Portal do corretor" : "Portal da imobiliária"}
       ativo={tab}
-      larguraTotal={tab === "conversas" || tab === "agenda"}
+      larguraTotal={tab === "conversas" || tab === "chat-acessor" || tab === "agenda"}
       onSelecionar={(id) => setTab(id as Aba)}
       grupos={ehCorretor ? [
         {
           itens: [
             { id: "inicio", rotulo: "Início", icone: Home },
             { id: "visao", rotulo: "Meu painel", icone: LayoutGrid },
-            { id: "conversas", rotulo: "Conversas", icone: MessageSquare, contador: totalSemResposta || undefined },
+            { id: "conversas", rotulo: "Conversas", icone: MessageSquare, contador: totalAtendimentosSem || undefined },
             { id: "leads", rotulo: "Clientes", icone: Contact },
             { id: "negociacoes", rotulo: "Fluxo", icone: Handshake },
             { id: "agenda", rotulo: "Agenda", icone: CalendarDays },
             { id: "imoveis", rotulo: "Imóveis", icone: Building2 },
           ],
         },
-        { titulo: "Atendimento", itens: [{ id: "atendimentos", rotulo: "Meus atendimentos", icone: MessagesSquare }] },
+        { titulo: "Atendimento", itens: [{ id: "chat-acessor", rotulo: "Chat do Acessor", icone: Sparkles, contador: totalSemResposta || undefined }] },
       ] : [
         {
           itens: [
@@ -694,10 +727,23 @@ export default function PortalApp({ papel }: { papel: Papel }) {
         {tab === "visao" && (ehCorretor
           ? <MeuPainel onAuthError={tratarAuthError} onIr={(id) => setTab(id as Aba)} />
           : <VisaoGeral onAuthError={tratarAuthError} onIr={(id) => setTab(id as Aba)} />)}
-        {tab === "atendimentos" && ehCorretor && <Atendimentos onAuthError={tratarAuthError} />}
+        {/* Corretor: Conversas = atendimentos com os clientes; o chat com o agente fica em "Chat do Acessor" */}
+        {tab === "conversas" && ehCorretor && (
+          <ConversasAtendimentos
+            itens={atendimentos}
+            carregando={loadingAtendimentos}
+            todos={atendimentosTodos}
+            onTodos={setAtendimentosTodos}
+            onRecarregar={() => loadAtendimentos()}
+            meuId={eu?.id ?? tokenCorretorId() ?? ""}
+            onAuthError={tratarAuthError}
+            onIr={(id) => setTab(id as Aba)}
+            onAbrirCliente={(leadId) => { setLeadDetalhe(leadId); setTab("leads"); }}
+          />
+        )}
 
-        {/* Tab Conversas */}
-        {tab === "conversas" && (
+        {/* Tab Conversas (equipe) / Chat do Acessor (corretor) */}
+        {((tab === "conversas" && !ehCorretor) || (tab === "chat-acessor" && ehCorretor)) && (
           <Conversas
             conversas={conversas}
             carregando={loadingConversas}

@@ -60,6 +60,7 @@ export default function AcoesRapidas({
   onFechar,
   onEnviado,
   onAuthError,
+  mensagemInicial,
 }: {
   corretorId: string;
   corretorNome: string;
@@ -67,6 +68,8 @@ export default function AcoesRapidas({
   onFechar: () => void;
   onEnviado: (mensagens: MensagemChat[], falhas: number) => void;
   onAuthError: (e: unknown) => boolean;
+  /** Texto que já vem no campo "mensagem junto" (ex.: "Para Maria:"). */
+  mensagemInicial?: string;
 }) {
   const [tipo, setTipo] = useState<"imoveis" | "lead">(tipoInicial === "book" ? "imoveis" : tipoInicial);
   const [busca, setBusca] = useState("");
@@ -81,7 +84,7 @@ export default function AcoesRapidas({
 
   const [codigos, setCodigos] = useState<number[]>([]);
   const [cliente, setCliente] = useState<ClienteLista | null>(null);
-  const [mensagem, setMensagem] = useState("");
+  const [mensagem, setMensagem] = useState(mensagemInicial ?? "");
   const [formato, setFormato] = useState<Formato>(tipoInicial === "book" ? "book" : "cartoes");
   const [modelos, setModelos] = useState<ModelosBook | null>(null);
   const [modeloId, setModeloId] = useState("");

@@ -113,7 +113,7 @@ export default function MeuPainel({ onAuthError, onIr }: { onAuthError: (e: unkn
           ) : (
             <ul className="mt-3 grid sm:grid-cols-2 xl:grid-cols-3 gap-2">
               {dados.aguardando_resposta.length > 0 && (
-                <li><button type="button" onClick={() => ir("atendimentos")} className="w-full flex items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm hover:bg-[var(--hover-solid)]" style={{ color: "var(--text-2)" }}>
+                <li><button type="button" onClick={() => ir("conversas")} className="w-full flex items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm hover:bg-[var(--hover-solid)]" style={{ color: "var(--text-2)" }}>
                   <MessageCircle className="w-4 h-4 shrink-0" style={{ color: "var(--warn)" }} aria-hidden />
                   <span className="flex-1">{n(dados.aguardando_resposta.length)} {dados.aguardando_resposta.length === 1 ? "cliente esperando" : "clientes esperando"} sua resposta</span>
                   <ChevronRight className="w-4 h-4" aria-hidden />

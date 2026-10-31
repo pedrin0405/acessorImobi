@@ -37,13 +37,13 @@ const ABAS: { id: AbaDetalhes; rotulo: string }[] = [
 
 const STATUS: Record<string, string> = { active: "Ativo", pending: "Pendente", blocked: "Bloqueado", rejected: "Recusado" };
 
-const dataHora = (iso: string | null) => {
+export const dataHora = (iso: string | null) => {
   if (!iso) return "—";
   const d = new Date(iso);
   return `${d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" })} · ${d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}`;
 };
 
-const relativo = (iso: string) => {
+export const relativo = (iso: string) => {
   const min = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
   if (min < 1) return "agora";
   if (min < 60) return `há ${min} min`;
@@ -51,7 +51,7 @@ const relativo = (iso: string) => {
   return dataHora(iso);
 };
 
-function Secao({ titulo, children }: { titulo: string; children: React.ReactNode }) {
+export function Secao({ titulo, children }: { titulo: string; children: React.ReactNode }) {
   return (
     <section className="py-3">
       <h4 className="px-1 pb-2 text-[10.5px] font-semibold uppercase tracking-[0.12em]" style={{ color: "var(--text-4)" }}>{titulo}</h4>
@@ -60,7 +60,7 @@ function Secao({ titulo, children }: { titulo: string; children: React.ReactNode
   );
 }
 
-function Linha({ rotulo, valor }: { rotulo: string; valor: React.ReactNode }) {
+export function Linha({ rotulo, valor }: { rotulo: string; valor: React.ReactNode }) {
   return (
     <div className="flex items-center justify-between gap-4 px-1 py-2.5 text-[13px]" style={{ borderTop: "1px solid var(--line)" }}>
       <span style={{ color: "var(--text-3)" }}>{rotulo}</span>
@@ -69,9 +69,9 @@ function Linha({ rotulo, valor }: { rotulo: string; valor: React.ReactNode }) {
   );
 }
 
-const vazio = (texto: string) => <p className="px-1 py-6 text-center text-sm" style={{ color: "var(--text-3)" }}>{texto}</p>;
+export const vazio = (texto: string) => <p className="px-1 py-6 text-center text-sm" style={{ color: "var(--text-3)" }}>{texto}</p>;
 
-const corTemperatura = (t: string | null) => (t === "quente" ? "var(--danger)" : t === "frio" ? "var(--info)" : "var(--warn)");
+export const corTemperatura = (t: string | null) => (t === "quente" ? "var(--danger)" : t === "frio" ? "var(--info)" : "var(--warn)");
 
 export default function PainelDetalhes({
   corretorId,

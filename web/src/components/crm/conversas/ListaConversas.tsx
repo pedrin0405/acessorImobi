@@ -5,9 +5,9 @@ import React, { useMemo, useState } from "react";
 import { Image as ImagemIcone, MessageSquare, Mic, RefreshCw, Search } from "lucide-react";
 import type { ConversaResumo } from "./tipos";
 
-type Filtro = "todas" | "sem-resposta" | "hoje" | "inativos";
+export type Filtro = "todas" | "sem-resposta" | "hoje" | "inativos";
 
-const FILTROS: { id: Filtro; rotulo: string }[] = [
+export const FILTROS: { id: Filtro; rotulo: string }[] = [
   { id: "todas", rotulo: "Todas" },
   { id: "sem-resposta", rotulo: "Sem resposta" },
   { id: "hoje", rotulo: "Hoje" },
@@ -68,6 +68,12 @@ export default function ListaConversas({
   online,
   onAbrir,
   onAtualizar,
+  titulo = "Conversas",
+  rotuloOnline,
+  filtros = FILTROS,
+  extra,
+  textoVazio,
+  semAvatarDoCorretor = false,
 }: {
   conversas: ConversaResumo[];
   carregando: boolean;
@@ -75,6 +81,15 @@ export default function ListaConversas({
   online: boolean | null;
   onAbrir: (c: ConversaResumo) => void;
   onAtualizar: () => void;
+  titulo?: string;
+  /** Troca os textos "Online / WhatsApp desconectado" (ex.: WhatsApp pessoal do corretor). */
+  rotuloOnline?: { on: string; off: string };
+  filtros?: { id: Filtro; rotulo: string }[];
+  /** Conteúdo logo abaixo dos filtros (ex.: alternador de conversas não imobiliárias). */
+  extra?: React.ReactNode;
+  textoVazio?: { titulo: string; detalhe: string };
+  /** Atendimentos: o id da linha é do atendimento, não de um corretor, então o avatar é só as iniciais. */
+  semAvatarDoCorretor?: boolean;
 }) {
   const [busca, setBusca] = useState("");
   const [filtro, setFiltro] = useState<Filtro>("todas");
@@ -96,10 +111,10 @@ export default function ListaConversas({
       <header className="px-5 pt-5 pb-3 shrink-0">
         <div className="flex items-start justify-between gap-3">
           <div>
-            <h1 className="text-2xl font-semibold tracking-tight" style={{ color: "var(--text)" }}>Conversas</h1>
+            <h1 className="text-2xl font-semibold tracking-tight" style={{ color: "var(--text)" }}>{titulo}</h1>
             <p className="mt-1 flex items-center gap-1.5 text-xs" style={{ color: "var(--text-3)" }}>
               <span aria-hidden className="w-1.5 h-1.5 rounded-full" style={{ background: online === null ? "var(--text-4)" : online ? "var(--accent)" : "var(--warn)" }} />
-              {online === null ? "Verificando…" : online ? "Online" : "WhatsApp desconectado"}
+              {online === null ? "Verificando…" : online ? (rotuloOnline?.on ?? "Online") : (rotuloOnline?.off ?? "WhatsApp desconectado")}
             </p>
           </div>
           <button type="button" onClick={onAtualizar} aria-label="Atualizar conversas" className="p-2 -mr-2 rounded-lg hover:bg-[var(--hover-solid)]" style={{ color: "var(--text-3)" }}>
@@ -121,7 +136,7 @@ export default function ListaConversas({
         </label>
 
         <div role="radiogroup" aria-label="Filtrar conversas" className="mt-3 flex gap-2 overflow-x-auto pb-1 -mx-1 px-1">
-          {FILTROS.map((f) => {
+          {filtros.map((f) => {
             const ativo = filtro === f.id;
             return (
               <button
@@ -138,6 +153,7 @@ export default function ListaConversas({
             );
           })}
         </div>
+        {extra}
       </header>
 
       <div className="flex-1 overflow-y-auto px-2 pb-4">
@@ -159,10 +175,10 @@ export default function ListaConversas({
               <MessageSquare className="w-6 h-6" aria-hidden />
             </span>
             <p className="mt-3 text-sm font-medium" style={{ color: "var(--text)" }}>
-              {conversas.length === 0 ? "Nenhuma conversa ainda" : "Nada encontrado"}
+              {conversas.length === 0 ? (textoVazio?.titulo ?? "Nenhuma conversa ainda") : "Nada encontrado"}
             </p>
             <p className="mt-1 text-xs" style={{ color: "var(--text-3)" }}>
-              {conversas.length === 0 ? "Quando um corretor falar com o agente, a conversa aparece aqui." : "Tente outro nome, outra palavra ou outro filtro."}
+              {conversas.length === 0 ? (textoVazio?.detalhe ?? "Quando um corretor falar com o agente, a conversa aparece aqui.") : "Tente outro nome, outra palavra ou outro filtro."}
             </p>
           </div>
         ) : (
@@ -179,7 +195,7 @@ export default function ListaConversas({
                     className="w-full flex items-start gap-3 px-3 py-3 rounded-2xl text-left transition-colors hover:bg-[var(--card-2)]"
                     style={ativa ? { background: "var(--hover-solid)" } : undefined}
                   >
-                    <Avatar nome={c.corretor_nome} id={c.corretor_id} />
+                    <Avatar nome={c.corretor_nome} id={semAvatarDoCorretor ? null : c.corretor_id} />
                     <span className="min-w-0 flex-1">
                       <span className="flex items-baseline justify-between gap-2">
                         <span className="truncate text-[15px] font-medium" style={{ color: "var(--text)" }}>{c.corretor_nome || c.telefone_mascarado}</span>
