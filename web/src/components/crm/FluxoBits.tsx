@@ -1,7 +1,8 @@
 import React from "react";
 import { CalendarCheck, FileText, MessageSquare, ShieldCheck } from "lucide-react";
 import { Selo } from "@/components/configuracoes/ui";
-import { Negocio } from "@/lib/crm";
+import { brl, Negocio } from "@/lib/crm";
+import { ROTULO_VALOR } from "@/components/crm/lead/util";
 
 const TOM: Record<string, "perigo" | "aviso" | "info"> = { Quente: "perigo", Morno: "aviso", Frio: "info" };
 
@@ -56,5 +57,27 @@ export function ResumoImoview({ nv }: { nv: Negocio }) {
         </div>
       )}
     </div>
+  );
+}
+
+interface ComValor { valor: number; valor_manual?: boolean; im_valor_tipo?: string | null; im_comissao?: number | null }
+
+/** De onde vem o valor do negócio: digitado no portal ("Manual") ou deduzido do CRM do Imoview. */
+export function rotuloValor(nv: Pick<ComValor, "valor_manual" | "im_valor_tipo">): string | null {
+  if (nv.valor_manual) return "Manual";
+  return nv.im_valor_tipo ? ROTULO_VALOR[nv.im_valor_tipo] ?? null : null;
+}
+
+/** Valor em R$ com a origem logo abaixo (e a comissão, quando o Imoview a informa). */
+export function ValorNegocio({ nv, alinhar = "right", comissao = true }: { nv: ComValor; alinhar?: "right" | "left"; comissao?: boolean }) {
+  const origem = rotuloValor(nv);
+  const cls = alinhar === "right" ? "text-right" : "text-left";
+  if (!(nv.valor > 0)) return <span className={`block text-xs ${cls}`} style={{ color: "var(--text-4)" }}>Sem valor</span>;
+  return (
+    <span className={`block ${cls} leading-tight`}>
+      <span className="block text-xs font-semibold tabular-nums" style={{ color: "var(--text-2)" }}>{brl(nv.valor)}</span>
+      {origem && <span className="block text-[10px]" style={{ color: "var(--text-4)" }}>{origem}</span>}
+      {comissao && nv.im_comissao ? <span className="block text-[10px] tabular-nums" style={{ color: "var(--accent-text)" }}>comissão {brl(nv.im_comissao)}</span> : null}
+    </span>
   );
 }

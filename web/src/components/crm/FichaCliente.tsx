@@ -2,13 +2,14 @@
 
 import AvatarDoCorretor from "@/components/corretor/AvatarDoCorretor";
 import React, { useCallback, useEffect, useState } from "react";
-import { CalendarDays, Globe, Home, Mail, MapPin, Phone, X } from "lucide-react";
+import { ArrowUpRight, CalendarDays, Globe, Home, Mail, MapPin, Phone, X } from "lucide-react";
 import { AtendimentoImoview, brl, Perfil } from "@/lib/crm";
 import AtendimentosImoview from "@/components/crm/AtendimentosImoview";
+import { rotuloValor } from "@/components/crm/FluxoBits";
 import { Aviso, Botao, Area, Selo, Seletor, useApi } from "@/components/configuracoes/ui";
 
 interface Endereco { tipo?: string; endereco?: string; bairro?: string; cidade?: string; estado?: string; cep?: string }
-interface DadosImoview {
+export interface DadosImoview {
   tipo_pessoa?: string; sexo?: string; estado_civil?: string; data_nascimento?: string; naturalidade?: string; nacionalidade?: string;
   profissao?: string; cargo?: string; local_trabalho?: string; conjuge?: string; numero_filhos?: string; fantasia?: string; data_fundacao?: string;
   renda_mensal?: number; renda_familiar?: number; valor_entrada?: number; fgts?: number;
@@ -18,9 +19,14 @@ interface DadosImoview {
   enderecos?: Endereco[];
   relacionamentos?: Record<string, number>;
 }
-interface NegocioLead { id: string; etapa_nome: string; status: string; valor: number; corretor_nome: string | null; dias_na_etapa: number; automatico?: boolean; created_at: string }
-interface AtividadeLead { id: string; tipo: string; titulo: string; inicio: string | null; status: string; atrasada: boolean; corretor_nome: string | null }
-interface EventoLead { tipo: string; de: string | null; para: string | null; autor: string; created_at: string }
+export interface NegocioLead {
+  id: string; etapa_nome: string; status: string; valor: number; corretor_nome: string | null; dias_na_etapa: number; automatico?: boolean; created_at: string;
+  etapa_cor?: string; probabilidade?: number; esperado?: number; valor_manual?: boolean; fechamento_previsto?: string | null; motivo_perda?: string | null;
+  im_valor_tipo?: "negocio" | "proposta" | "imovel" | "orcamento" | null; im_comissao?: number | null; corretor_id?: string | null; imovel_codigo?: number | null;
+  im_previsao_fechamento?: string | null; im_termometro?: string | null; im_midia?: string | null;
+}
+export interface AtividadeLead { id: string; tipo: string; titulo: string; inicio: string | null; status: string; atrasada: boolean; corretor_nome: string | null }
+export interface EventoLead { tipo: string; de: string | null; para: string | null; autor: string; created_at: string }
 export interface Ficha {
   id: string; nome: string; telefone: string | null; email: string | null; origem: string; temperatura: "quente" | "morno" | "frio";
   status: string; perfil: Perfil; observacoes: string | null; corretor_id: string | null; corretor_nome: string | null;
@@ -80,7 +86,7 @@ function Campos({ itens }: { itens: [string, React.ReactNode][] }) {
 }
 
 export default function FichaCliente({
-  clienteId, corretores, onFechar, onAtribuir, onMudou, onAuthError, atribuindo,
+  clienteId, corretores, onFechar, onAtribuir, onMudou, onAuthError, atribuindo, onMaisDetalhes,
 }: {
   clienteId: string;
   corretores: { id: string; nome: string }[];
@@ -89,6 +95,7 @@ export default function FichaCliente({
   onMudou: () => void;
   onAuthError: (e: unknown) => boolean;
   atribuindo: boolean;
+  onMaisDetalhes?: (id: string) => void;
 }) {
   const api = useApi(onAuthError);
   const [ficha, setFicha] = useState<Ficha | null>(null);
@@ -174,6 +181,9 @@ export default function FichaCliente({
         </div>
         <button type="button" onClick={onFechar} aria-label="Fechar" className="p-1 rounded-lg hover:bg-[var(--hover-solid)]" style={{ color: "var(--text-3)" }}><X className="w-4 h-4" /></button>
       </div>
+      {onMaisDetalhes && (
+        <div className="mt-4"><Botao variante="primario" className="w-full" onClick={() => onMaisDetalhes(ficha.id)}><ArrowUpRight className="w-4 h-4" aria-hidden />Mais detalhes</Botao></div>
+      )}
       {erro && <div className="mt-3"><Aviso tom="erro">{erro}</Aviso></div>}
 
       <Secao titulo="Responsável">
@@ -227,7 +237,7 @@ export default function FichaCliente({
             {ficha.negocios.map((n) => (
               <li key={n.id} className="flex items-center justify-between gap-3 text-sm rounded-xl px-3 py-2" style={{ background: "var(--card-2)" }}>
                 <span className="min-w-0"><span style={{ color: "var(--text)" }}>{n.etapa_nome}</span><span className="block text-xs" style={{ color: "var(--text-3)" }}>{n.status === "aberto" ? `${n.dias_na_etapa}d na etapa` : n.status === "ganho" ? "Ganho" : "Perdido"}{n.corretor_nome ? ` · ${n.corretor_nome}` : ""}</span></span>
-                <span className="tabular-nums shrink-0" style={{ color: "var(--text-2)" }}>{n.valor > 0 ? brl(n.valor) : "—"}</span>
+                <span className="text-right shrink-0 leading-tight"><span className="block tabular-nums" style={{ color: "var(--text-2)" }}>{n.valor > 0 ? brl(n.valor) : "—"}</span>{n.valor > 0 && rotuloValor(n) && <span className="block text-[10px]" style={{ color: "var(--text-4)" }}>{rotuloValor(n)}</span>}{n.im_comissao ? <span className="block text-[10px] tabular-nums" style={{ color: "var(--accent-text)" }}>comissão {brl(n.im_comissao)}</span> : null}</span>
               </li>
             ))}
           </ul>

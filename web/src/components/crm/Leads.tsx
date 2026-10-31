@@ -5,6 +5,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { ChevronLeft, ChevronRight, Search, Shuffle, UserCheck, X } from "lucide-react";
 import { Perfil } from "@/lib/crm";
 import FichaCliente from "./FichaCliente";
+import DetalhesLead from "./lead/DetalhesLead";
 import { Aviso, Botao, Entrada, Seletor, Selo, useApi, useRecado } from "@/components/configuracoes/ui";
 
 interface Cliente {
@@ -45,7 +46,9 @@ const fone = (t: string | null) => {
   return t || "";
 };
 
-export default function Leads({ onAuthError, onIr }: { onAuthError: (e: unknown) => boolean; onIr?: (tab: string) => void }) {
+export default function Leads({ onAuthError, onIr, detalheInicial, onDetalheConsumido }: {
+  onAuthError: (e: unknown) => boolean; onIr?: (tab: string) => void; detalheInicial?: string | null; onDetalheConsumido?: () => void;
+}) {
   const api = useApi(onAuthError);
   const [dados, setDados] = useState<Pagina | null>(null);
   const [carregando, setCarregando] = useState(true);
@@ -67,6 +70,7 @@ export default function Leads({ onAuthError, onIr }: { onAuthError: (e: unknown)
   const [recado, mostrar] = useRecado(5000);
 
   const [aberto, setAberto] = useState<Cliente | null>(null);
+  const [detalhesId, setDetalhesId] = useState<string | null>(null);
   const painel = useRef<HTMLElement>(null);
   const requisicao = useRef(0);
 
@@ -99,6 +103,11 @@ export default function Leads({ onAuthError, onIr }: { onAuthError: (e: unknown)
   }, [api, termo, responsavel, origem, temperatura, ordem, pagina]);
   useEffect(() => { carregar(); }, [carregar]);
 
+  // Vindo do popup do Fluxo: abre direto a subpágina do cliente.
+  useEffect(() => {
+    if (detalheInicial) { setDetalhesId(detalheInicial); onDetalheConsumido?.(); }
+  }, [detalheInicial, onDetalheConsumido]);
+
   const mudarFiltro = (f: () => void) => { f(); setPagina(1); setMarcados(new Set()); setTodosDoFiltro(false); };
 
   const abrir = (c: Cliente) => {
@@ -130,6 +139,10 @@ export default function Leads({ onAuthError, onIr }: { onAuthError: (e: unknown)
 
   const resumo = dados?.resumo;
   const filtrando = !!(termo || responsavel || origem || temperatura);
+
+  if (detalhesId) {
+    return <DetalhesLead leadId={detalhesId} corretores={corretores} onAuthError={onAuthError} onVoltar={() => setDetalhesId(null)} onMudou={carregar} />;
+  }
 
   return (
     <div>
@@ -242,7 +255,7 @@ export default function Leads({ onAuthError, onIr }: { onAuthError: (e: unknown)
           ) : (
             <FichaCliente
               clienteId={aberto.id} corretores={corretores} atribuindo={atribuindo} onAuthError={onAuthError}
-              onFechar={() => setAberto(null)} onMudou={carregar}
+              onFechar={() => setAberto(null)} onMudou={carregar} onMaisDetalhes={setDetalhesId}
               onAtribuir={(id, corretorId) => atribuir(false, [id], corretorId)}
             />
           )}

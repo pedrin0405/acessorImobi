@@ -33,6 +33,7 @@ class NegocioUpdate(BaseModel):
     status: Optional[str] = Field(default=None, pattern="^(aberto|ganho|perdido)$")
     motivo_perda: Optional[str] = None
     valor: Optional[float] = Field(default=None, ge=0)
+    fechamento_previsto: Optional[date] = None
 
 
 class NegocioCreate(BaseModel):
@@ -182,7 +183,7 @@ async def detalhe_negocio(negocio_id: UUID, admin=Depends(require_admin)):
 
 @router.patch("/negocios/{negocio_id}", summary="Move de etapa, ganha ou perde um negócio")
 async def atualizar_negocio(negocio_id: UUID, body: NegocioUpdate, admin=Depends(require_admin)):
-    if not body.etapa and not body.status and body.valor is None:
+    if not body.etapa and not body.status and body.valor is None and body.fechamento_previsto is None:
         raise HTTPException(status_code=422, detail="Informe a etapa, o status ou o valor.")
     async with get_session(admin.tenant_id) as session:
         crm = CrmService(session)
@@ -200,11 +201,17 @@ async def atualizar_negocio(negocio_id: UUID, body: NegocioUpdate, admin=Depends
             )
         except CrmError as e:
             raise _erro(e)
+        if body.fechamento_previsto is not None:
+            await session.execute(
+                text("UPDATE crm_negocios SET fechamento_previsto = :d WHERE id = :id AND tenant_id = :tid"),
+                {"d": body.fechamento_previsto, "id": str(negocio_id), "tid": str(admin.tenant_id)},
+            )
+            negocio = await crm.get_negocio(admin.tenant_id, negocio_id)
         await AuditoriaService(session).registrar(
             tenant_id=admin.tenant_id, corretor_id=UUID(atual["corretor_id"]) if atual["corretor_id"] else None,
             acao="crm_mover_negocio", entidade="negocio", entidade_id=str(negocio_id),
             payload_antes={"etapa": atual["etapa_nome"], "status": atual["status"]},
-            payload_depois=body.model_dump(exclude_none=True), origem="portal",
+            payload_depois=body.model_dump(mode="json", exclude_none=True), origem="portal",
         )
         return negocio
 
@@ -291,6 +298,7 @@ async def negocio_completo(negocio_id: UUID, admin=Depends(require_admin)):
         if not negocio:
             raise HTTPException(status_code=404, detail="Negócio não encontrado.")
         lead_id = UUID(str(negocio["lead_id"]))
+        negocio["esperado"] = round(negocio["valor"] * negocio["probabilidade"] / 100, 2)
         return {
             "negocio": negocio,
             "eventos_do_negocio": await crm.eventos(admin.tenant_id, negocio_id),

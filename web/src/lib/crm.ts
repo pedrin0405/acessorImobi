@@ -44,6 +44,9 @@ export interface Negocio {
   im_n_propostas?: number | null;
   im_qualificado?: boolean | null;
   im_previsao_fechamento?: string | null;
+  valor_manual?: boolean;
+  im_valor_tipo?: "negocio" | "proposta" | "imovel" | "orcamento" | null;
+  im_comissao?: number | null;
   corretor_nome: string | null;
   dias_na_etapa: number;
   travado: boolean;

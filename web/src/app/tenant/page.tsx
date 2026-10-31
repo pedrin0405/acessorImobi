@@ -71,6 +71,7 @@ export default function TenantAdminPage() {
   const [authed, setAuthed] = useState(false);
   const [checkedAuth, setCheckedAuth] = useState(false);
   const [tab, setTab] = useState<Aba>("inicio");
+  const [leadDetalhe, setLeadDetalhe] = useState<string | null>(null);
   const [secaoCfg, setSecaoCfg] = useState("perfil");
   const noWhatsapp = tab === "configuracoes" && secaoCfg === "whatsapp";
   const [corretores, setCorretores] = useState<Corretor[]>([]);
@@ -774,9 +775,9 @@ export default function TenantAdminPage() {
           />
         )}
 
-        {tab === "negociacoes" && <Negociacoes onAuthError={tratarAuthError} />}
+        {tab === "negociacoes" && <Negociacoes onAuthError={tratarAuthError} onAbrirCliente={(id) => { setLeadDetalhe(id); setTab("leads"); }} />}
         {tab === "agenda" && <Agenda onAuthError={tratarAuthError} />}
-        {tab === "leads" && <Leads onAuthError={tratarAuthError} onIr={(id) => { if (id === "configuracoes") setSecaoCfg("integracoes"); setTab(id as Aba); }} />}
+        {tab === "leads" && <Leads onAuthError={tratarAuthError} detalheInicial={leadDetalhe} onDetalheConsumido={() => setLeadDetalhe(null)} onIr={(id) => { if (id === "configuracoes") setSecaoCfg("integracoes"); setTab(id as Aba); }} />}
 
         {/* Tab Auditoria */}
         {tab === "auditoria" && (

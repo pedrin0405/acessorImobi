@@ -8,8 +8,8 @@ import {
 } from "lucide-react";
 import { brl, COR_ETAPA, CorretorOpcao, corretoresAtivos, Etapa, Funil, FunilEtapa, Negocio } from "@/lib/crm";
 import { fetchApi } from "@/lib/api";
-import FichaCliente from "@/components/crm/FichaCliente";
-import { ResumoImoview, TermometroSelo, tempoAtras } from "@/components/crm/FluxoBits";
+import PopupNegocio from "@/components/crm/lead/PopupNegocio";
+import { ResumoImoview, TermometroSelo, tempoAtras, ValorNegocio } from "@/components/crm/FluxoBits";
 import { Aviso, Botao, Entrada, Seletor, Selo, useApi } from "@/components/configuracoes/ui";
 
 type Visao = "kanban" | "lista" | "previsao";
@@ -31,11 +31,14 @@ const fone = (t?: string | null) => {
   return t || "";
 };
 
-export default function Negociacoes({ onAuthError }: { onAuthError: (e: unknown) => boolean }) {
+/** Clique que abre o popup do card; ignora controles internos (selects, botões, links) e o fim de um arrastar. */
+const ehControle = (alvo: EventTarget | null) => !!(alvo as HTMLElement | null)?.closest?.("button, select, a, input, textarea, label, option");
+
+export default function Negociacoes({ onAuthError, onAbrirCliente }: { onAuthError: (e: unknown) => boolean; onAbrirCliente?: (leadId: string) => void }) {
   const api = useApi(onAuthError);
   const [visao, setVisao] = useState<Visao>("kanban");
-  const [fichaId, setFichaId] = useState<string | null>(null);
-  const [atribuindo, setAtribuindo] = useState(false);
+  const [popupId, setPopupId] = useState<string | null>(null);
+  const arrastou = useRef(false);
   const [funil, setFunil] = useState<Funil | null>(null);
   const [etapas, setEtapas] = useState<Etapa[]>([]);
   const [corretores, setCorretores] = useState<CorretorOpcao[]>([]);
@@ -254,14 +257,18 @@ export default function Negociacoes({ onAuthError }: { onAuthError: (e: unknown)
                       <li
                         key={nv.id}
                         draggable
-                        onDragStart={() => setArrastando(nv)}
-                        onDragEnd={() => { setArrastando(null); setSobre(null); }}
-                        className="rounded-xl p-3 space-y-2 cursor-grab active:cursor-grabbing"
+                        onDragStart={() => { arrastou.current = true; setArrastando(nv); }}
+                        onDragEnd={() => { setArrastando(null); setSobre(null); setTimeout(() => { arrastou.current = false; }, 120); }}
+                        onClick={(e) => { if (!arrastou.current && !ehControle(e.target)) setPopupId(nv.id); }}
+                        onKeyDown={(e) => { if (e.key === "Enter" && e.target === e.currentTarget) setPopupId(nv.id); }}
+                        tabIndex={0}
+                        aria-label={`Abrir detalhes de ${nv.lead_nome}`}
+                        className="rounded-xl p-3 space-y-2 cursor-pointer active:cursor-grabbing hover:border-[var(--line-2)] focus-visible:outline focus-visible:outline-2"
                         style={{ background: "var(--card-2)", border: `1px solid ${nv.travado ? "var(--warn)" : "var(--line)"}`, opacity: arrastando?.id === nv.id ? 0.4 : 1 }}
                       >
                         <div className="flex justify-between gap-2">
-                          <button type="button" onClick={() => setFichaId(nv.lead_id)} title="Abrir ficha do lead" className="text-sm font-medium truncate text-left hover:underline" style={{ color: "var(--text)" }}>{nv.lead_nome}</button>
-                          {nv.valor > 0 && <span className="text-xs font-semibold tabular-nums shrink-0" style={{ color: "var(--text-2)" }}>{brl(nv.valor)}</span>}
+                          <span className="text-sm font-medium truncate" style={{ color: "var(--text)" }}>{nv.lead_nome}</span>
+                          <span className="shrink-0"><ValorNegocio nv={nv} /></span>
                         </div>
                         <p className="text-[11px] truncate" style={{ color: "var(--text-3)" }}>{[fone(nv.lead_telefone), nv.lead_email].filter(Boolean).join(" · ") || "Sem contato"}</p>
                         <div className="flex items-center justify-between gap-2 text-[11px]" style={{ color: "var(--text-3)" }}>
@@ -306,18 +313,20 @@ export default function Negociacoes({ onAuthError }: { onAuthError: (e: unknown)
                   <th className="py-3 pr-3 font-medium hidden xl:table-cell">Último contato</th>
                   <th className="py-3 pr-3 font-medium hidden md:table-cell">Corretor</th>
                   <th className="py-3 pr-3 font-medium text-right hidden sm:table-cell">Valor</th>
+                  <th className="py-3 pr-3 font-medium text-right hidden xl:table-cell">Comissão</th>
                   <th className="py-3 pr-4 font-medium text-right hidden lg:table-cell">Na etapa</th>
                 </tr>
               </thead>
               <tbody>
                 {lista.itens.map((nv) => (
-                  <tr key={nv.id} style={{ borderTop: "1px solid var(--line)" }}>
-                    <td className="py-3 pl-4 pr-3 min-w-0"><button type="button" onClick={() => setFichaId(nv.lead_id)} title="Abrir ficha do lead" className="font-medium truncate max-w-[14rem] text-left hover:underline block" style={{ color: "var(--text)" }}>{nv.lead_nome}</button><p className="text-xs truncate max-w-[14rem]" style={{ color: "var(--text-3)" }}>{fone(nv.lead_telefone) || "Sem contato"}</p></td>
+                  <tr key={nv.id} onClick={(e) => { if (!ehControle(e.target)) setPopupId(nv.id); }} className="cursor-pointer hover:bg-[var(--hover-solid)] transition-colors" style={{ borderTop: "1px solid var(--line)" }}>
+                    <td className="py-3 pl-4 pr-3 min-w-0"><span className="font-medium truncate max-w-[14rem] block" style={{ color: "var(--text)" }}>{nv.lead_nome}</span><p className="text-xs truncate max-w-[14rem]" style={{ color: "var(--text-3)" }}>{fone(nv.lead_telefone) || "Sem contato"}</p></td>
                     <td className="py-3 pr-3"><span className="inline-flex items-center gap-1.5" style={{ color: "var(--text-2)" }}><span className={`w-2 h-2 rounded-full ${COR_ETAPA[nv.etapa_cor] ?? "bg-slate-400"}`} aria-hidden />{nv.etapa_nome}</span></td>
                     <td className="py-3 pr-3 hidden xl:table-cell text-xs"><span className="flex items-center gap-1.5"><TermometroSelo valor={nv.im_termometro} />{nv.im_midia && <span className="truncate max-w-[9rem]" style={{ color: "var(--text-3)" }}>{nv.im_midia}</span>}</span></td>
                     <td className="py-3 pr-3 hidden xl:table-cell text-xs" style={{ color: "var(--text-3)" }}>{nv.im_ultima_interacao ? tempoAtras(nv.im_ultima_interacao) : "—"}</td>
                     <td className="py-3 pr-3 hidden md:table-cell">{nv.corretor_nome ? <span className="inline-flex items-center gap-2" style={{ color: "var(--text-2)" }}><AvatarDoCorretor id={nv.corretor_id} nome={nv.corretor_nome} tamanho={24} />{nv.corretor_nome}</span> : <Selo tom="aviso">Sem responsável</Selo>}</td>
-                    <td className="py-3 pr-3 text-right tabular-nums hidden sm:table-cell" style={{ color: "var(--text-2)" }}>{nv.valor > 0 ? brl(nv.valor) : "—"}</td>
+                    <td className="py-3 pr-3 text-right tabular-nums hidden sm:table-cell" style={{ color: "var(--text-2)" }}><ValorNegocio nv={nv} comissao={false} /></td>
+                    <td className="py-3 pr-3 text-right tabular-nums hidden xl:table-cell text-xs" style={{ color: "var(--accent-text)" }}>{nv.im_comissao ? brl(nv.im_comissao) : <span style={{ color: "var(--text-4)" }}>—</span>}</td>
                     <td className="py-3 pr-4 text-right tabular-nums hidden lg:table-cell" style={{ color: nv.travado ? "var(--warn)" : "var(--text-3)" }}>{nv.dias_na_etapa} dias</td>
                   </tr>
                 ))}
@@ -364,23 +373,12 @@ export default function Negociacoes({ onAuthError }: { onAuthError: (e: unknown)
         </section>
       )}
 
-      {fichaId && (
-        <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-modal="true" aria-label="Ficha do lead">
-          <button type="button" aria-label="Fechar ficha" className="absolute inset-0 bg-black/50" onClick={() => setFichaId(null)} />
-          <aside className="relative w-full max-w-xl h-full overflow-y-auto p-5" style={{ background: "var(--card)", borderLeft: "1px solid var(--line)" }}>
-            <FichaCliente
-              clienteId={fichaId} corretores={corretores.map((c) => ({ id: c.id, nome: c.nome ?? "Sem nome" }))} atribuindo={atribuindo} onAuthError={onAuthError}
-              onFechar={() => setFichaId(null)} onMudou={() => { carregar(true); if (visao === "lista") carregarLista(); }}
-              onAtribuir={async (id, corretorId) => {
-                setAtribuindo(true);
-                const r = await api("/admin/crm/clientes/atribuir", { method: "POST", corpo: { ids: [id], corretor_id: corretorId } });
-                setAtribuindo(false);
-                if (!r.ok) setErro(r.erro);
-                carregar(true);
-              }}
-            />
-          </aside>
-        </div>
+      {popupId && (
+        <PopupNegocio
+          negocioId={popupId} etapas={etapas} onAuthError={onAuthError} onFechar={() => setPopupId(null)}
+          onMudou={() => { carregar(true); if (visao === "lista") carregarLista(); }}
+          onAbrirCliente={onAbrirCliente ? (id) => { setPopupId(null); onAbrirCliente(id); } : undefined}
+        />
       )}
       {perdendo && (
         <Modal titulo={`Por que o lead de ${perdendo.lead_nome} foi perdido?`} onFechar={() => setPerdendo(null)}>
