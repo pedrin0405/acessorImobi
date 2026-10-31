@@ -14,8 +14,8 @@ const PASSOS = [
     texto: "Por texto ou por áudio, no WhatsApp. Buscar imóveis, registrar um cliente e o que ele procura, abrir ou mover um negócio, marcar uma visita.",
   },
   {
-    titulo: "O Acessor consulta o Imoview e responde",
-    texto: "Os imóveis vêm do cadastro sincronizado do Imoview: cartão com foto, dados e o link do anúncio no site da imobiliária, ou um book em PDF. Antes de gravar qualquer coisa no CRM, ele pede a confirmação do corretor.",
+    titulo: "O Acessor consulta o seu CRM e responde",
+    texto: "Os imóveis vêm do cadastro sincronizado do seu CRM: cartão com foto, dados e o link do anúncio no site da imobiliária, ou um book em PDF. Antes de gravar qualquer coisa no CRM, ele pede a confirmação do corretor.",
   },
   {
     titulo: "O resultado cai no CRM e no portal",

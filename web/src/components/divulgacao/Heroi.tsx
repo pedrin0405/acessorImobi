@@ -25,10 +25,10 @@ export default function Heroi() {
           <h1 id="dv-titulo" className="dv-h1 dv-entra" style={{ color: "#f4f8f6", animationDelay: ".05s" }}>
             Peça no WhatsApp.
             <br />
-            <span style={{ color: "#8fe9be" }}>O Acessor busca no Imoview e organiza o resto.</span>
+            <span style={{ color: "#8fe9be" }}>O Acessor busca no seu CRM e organiza o resto.</span>
           </h1>
           <p className="dv-entra mt-6 max-w-[34rem] text-[17px] sm:text-[18px] leading-relaxed" style={{ color: "#a9bcb5", animationDelay: ".2s" }}>
-            Assistente de IA para corretores de imóveis, com um portal para a imobiliária e outro para cada corretor, integrados ao CRM Imoview.
+            Assistente de IA para corretores de imóveis, com um portal para a imobiliária e outro para cada corretor, integrados ao seu CRM.
           </p>
           <div className="dv-entra mt-9 flex flex-wrap items-center gap-3" style={{ animationDelay: ".35s" }}>
             <Link

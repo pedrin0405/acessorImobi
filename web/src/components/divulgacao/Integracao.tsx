@@ -4,7 +4,7 @@ import Revelar from "./Revelar";
 const DADOS = [
   { t: "Imóveis", d: "Com fotos, valores e o link do anúncio no site da imobiliária." },
   { t: "Leads e atendimentos", d: "Interações, visitas, propostas e negócios do CRM." },
-  { t: "Etapa do funil", d: "Deduzida do que o Imoview registrou, não digitada de novo." },
+  { t: "Etapa do funil", d: "Deduzida do que o CRM registrou, não digitada de novo." },
 ];
 
 export default function Integracao() {
@@ -13,7 +13,7 @@ export default function Integracao() {
       <div aria-hidden className="pointer-events-none absolute inset-0" style={{ background: "radial-gradient(700px 420px at 15% 100%, rgb(52 130 96 / .35), transparent 65%), radial-gradient(600px 380px at 90% 0%, rgb(40 110 80 / .3), transparent 65%)" }} />
       <div className="relative mx-auto max-w-[1200px] px-5 sm:px-8 py-24 lg:py-28">
         <Revelar>
-          <h2 id="dv-imoview" className="dv-h2 max-w-[40rem]" style={{ color: "#f4f8f6" }}>Integrado ao Imoview</h2>
+          <h2 id="dv-imoview" className="dv-h2 max-w-[40rem]" style={{ color: "#f4f8f6" }}>Integrado ao seu CRM</h2>
           <p className="mt-5 text-[17px] leading-relaxed max-w-[38rem]" style={{ color: "#a9bcb5" }}>
             O Acessor lê o que a imobiliária já mantém no CRM e devolve organizado: no WhatsApp, para quem está na rua, e no portal, para quem acompanha.
           </p>
@@ -21,7 +21,7 @@ export default function Integracao() {
 
         <Revelar atraso={100} className="mt-14">
           <div className="grid lg:grid-cols-[auto_1fr_auto_1fr_auto] items-center gap-5 lg:gap-0">
-            <No titulo="Imoview" sub="CRM da imobiliária" />
+            <No titulo="Seu CRM" sub="Cadastro de imóveis, leads e atendimentos" />
             <Linha />
             <No titulo="Acessor" sub="lê, organiza e responde" destaque />
             <Linha />

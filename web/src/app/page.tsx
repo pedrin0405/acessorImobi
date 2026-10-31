@@ -9,7 +9,7 @@ import ChamadaFinal from "@/components/divulgacao/ChamadaFinal";
 import Rodape from "@/components/divulgacao/Rodape";
 
 const descricao =
-  "Assistente de IA no WhatsApp para corretores de imóveis, com um portal para a imobiliária e outro para cada corretor, integrados ao CRM Imoview.";
+  "Assistente de IA no WhatsApp para corretores de imóveis, com um portal para a imobiliária e outro para cada corretor, integrados ao seu CRM.";
 
 export const metadata: Metadata = {
   title: "Acessor Imobi — Peça no WhatsApp, o resto se organiza",

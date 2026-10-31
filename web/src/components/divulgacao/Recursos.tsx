@@ -12,8 +12,8 @@ const BLOCOS = [
   },
   {
     id: "fluxo",
-    titulo: "O funil que o Imoview já preenche",
-    texto: "Leads e atendimentos do CRM viram o Fluxo do portal. A etapa de cada lead é deduzida do que o Imoview registrou (visita, proposta, negócio) e os valores vêm do próprio CRM.",
+    titulo: "O funil que o seu CRM já preenche",
+    texto: "Leads e atendimentos do CRM viram o Fluxo do portal. A etapa de cada lead é deduzida do que o CRM registrou (visita, proposta, negócio) e os valores vêm do próprio CRM.",
     pontos: ["Valor do negócio vindo do CRM, com a origem de cada número", "Popup completo em cada card: linha do tempo, imóveis, interações e agenda"],
     demo: <DemoFluxo />,
     largo: true,
